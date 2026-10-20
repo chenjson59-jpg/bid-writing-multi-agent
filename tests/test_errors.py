@@ -2,8 +2,8 @@
 import pytest
 
 from src.errors import (
-    BidWriteError,
     BiddingError,
+    BidWriteError,
     ConfigError,
     ExtractError,
     IngestError,
