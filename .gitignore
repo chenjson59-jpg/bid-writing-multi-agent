@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# 环境与密钥
+.env
+
+# 运行时产物
+upload/
+chroma_db/
+*.log
+
+# 招标文件原文（不提交到公开仓库）
+招标文件/
+
+# 前端
+node_modules/
+frontend/dist/
+.electron-cache/
+
+# 系统
+.DS_Store
+Thumbs.db
