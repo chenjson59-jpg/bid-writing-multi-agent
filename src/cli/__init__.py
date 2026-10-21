@@ -10,7 +10,7 @@ import sys
 
 from src.errors import BiddingError
 
-from . import doctor, extract, ingest, inspect, parse
+from . import doctor, extract, ingest, inspect, parse, write
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract.register(subparsers)
     ingest.register(subparsers)
     inspect.register(subparsers)
+    write.register(subparsers)
     return parser
 
 

@@ -15,7 +15,7 @@ from pathlib import Path
 import pymupdf
 
 from src.config import REPO_ROOT, settings
-from src.errors import ConfigError, ParseError
+from src.errors import BidWriteError, ConfigError, ParseError
 from src.extraction.extractor import run_extraction
 from src.extraction.schema import TenderDocument
 from src.parsing.builder import assemble, merge_mineru
@@ -30,6 +30,7 @@ UPLOAD_DIR = REPO_ROOT / "upload"
 FILES_DIR = UPLOAD_DIR / "files"
 PARSED_DIR = UPLOAD_DIR / "parsed"
 IMAGES_DIR = UPLOAD_DIR / "images"
+BIDS_DIR = UPLOAD_DIR / "bids"
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*)$", re.MULTILINE)
 _ILLEGAL_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -289,3 +290,103 @@ def run_ingest(
     )
     extraction = run_extraction(doc, caller=caller, force=force)
     return ingest_document(doc, project_name=extraction.project_name)
+
+
+def load_extraction(doc_id: str) -> TenderDocument:
+    """从 `upload/parsed/<doc_id>/extraction.json` 读回结构化抽取结果。"""
+    path = PARSED_DIR / doc_id / "extraction.json"
+    if not path.exists():
+        raise BidWriteError(f"文档没有结构化抽取结果：{doc_id}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return TenderDocument(**{k: v for k, v in data.items()})
+
+
+def run_bid_writer(
+    doc_id: str,
+    *,
+    profile: dict | None = None,
+    options: dict | None = None,
+    caller=None,
+):
+    """生成投标文件草稿与覆盖报告（M4 核心流水线）。
+
+    `profile` 为投标人资料字典，`options` 为编写参数字典，二者均可空；
+    产物写入 `upload/bids/<doc_id>-<时间戳>/`。
+    """
+    from datetime import datetime
+
+    from src.bid_writer.agents import default_caller, plan_sections
+    from src.bid_writer.assembly import assemble_markdown, build_report
+    from src.bid_writer.docx_export import markdown_to_docx
+    from src.bid_writer.graph import run_write_pipeline
+    from src.bid_writer.schema import BidderProfile, WriteOptions
+    from src.vectorstore.ingest import collection_name
+    from src.vectorstore.retrieval import ChromaRetriever
+
+    profile_obj = BidderProfile.from_dict(profile)
+    write_options = WriteOptions.from_dict(options)
+    tender = load_extraction(doc_id)
+
+    caller = caller or default_caller()
+    plans = plan_sections(
+        tender,
+        profile_obj,
+        target_words=write_options.target_words,
+        max_sections=write_options.max_sections,
+        caller=caller,
+    )
+
+    retriever = ChromaRetriever(
+        collection_name(tender.doc_type), doc_id=doc_id
+    )
+    drafts = run_write_pipeline(
+        plans,
+        tender,
+        profile_obj,
+        write_options,
+        retriever.search,
+        caller,
+        max_concurrency=settings.bid_writer_max_concurrency,
+    )
+
+    now = datetime.now()
+    markdown = assemble_markdown(
+        tender.project_name,
+        profile_obj.company_name,
+        drafts,
+        now.strftime("%Y年%m月%d日"),
+    )
+    report = build_report(
+        doc_id, tender.project_name, profile_obj.company_name, drafts,
+        tender, profile_obj, now,
+    )
+
+    output_dir = BIDS_DIR / f"{doc_id}-{now.strftime('%Y%m%d-%H%M%S')}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    markdown_path = output_dir / "bid.md"
+    markdown_path.write_text(markdown, encoding="utf-8")
+    outline_path = output_dir / "outline.json"
+    outline_path.write_text(
+        json.dumps([p.to_dict() for p in plans], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    if write_options.export_word:
+        try:
+            docx_path = output_dir / "bid.docx"
+            markdown_to_docx(markdown, docx_path)
+            report.docx_path = str(docx_path)
+        except Exception as exc:  # noqa: BLE001 - Word 导出失败不阻断 Markdown 与报告
+            report.warnings.append(f"Word 导出失败：{exc}")
+
+    report.output_dir = str(output_dir)
+    report.markdown_path = str(markdown_path)
+    report.outline_path = str(outline_path)
+    report_path = output_dir / "report.json"
+    report.report_path = str(report_path)
+    report_path.write_text(
+        json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return report

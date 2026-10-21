@@ -1,0 +1,44 @@
+{
+  "company_name": "示例工程有限公司",
+  "legal_representative": "张三",
+  "registered_capital": "5000 万元",
+  "established_date": "2005-06-01",
+  "address": "示例省示例市示例区示例路 1 号",
+  "qualifications": [
+    "水利水电工程施工总承包二级"
+  ],
+  "certifications": [
+    "安全生产许可证（编号：示例）"
+  ],
+  "similar_projects": [
+    {
+      "name": "示例供水工程",
+      "amount": "3200 万元",
+      "date": "2024-10-01",
+      "role": "施工总承包",
+      "description": "日供水 5 万吨，含管网与泵站。"
+    }
+  ],
+  "personnel": [
+    {
+      "name": "李四",
+      "role": "项目经理",
+      "title": "高级工程师",
+      "certificate": "一级建造师（水利水电）",
+      "experience": "主持过 3 个类似供水项目。"
+    }
+  ],
+  "financials": {
+    "2023": "营业收入 1.2 亿元，净利润 800 万元",
+    "2024": "营业收入 1.5 亿元，净利润 950 万元"
+  },
+  "contact": {
+    "person": "王五",
+    "phone": "13800000000",
+    "email": "example@example.com",
+    "address": "示例省示例市示例区示例路 1 号"
+  },
+  "notes": [
+    "以上为示例数据，使用时必须替换为真实资料。"
+  ]
+}
