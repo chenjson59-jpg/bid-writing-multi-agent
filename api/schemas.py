@@ -71,3 +71,23 @@ class BidHistoryItem(BaseModel):
     bid_id: str
     generated_at: str | None
     summary: dict[str, Any]
+
+
+class TaskHistoryItem(BaseModel):
+    job_id: str
+    kind: str
+    doc_id: str | None = None
+    source_name: str | None = None
+    status: str
+    options: dict[str, Any] = {}
+    summary: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: str | None = None
+    finished_at: str | None = None
+
+
+class BidderProfileItem(BaseModel):
+    id: int
+    company_name: str
+    data: dict[str, Any] = {}
+    created_at: str | None = None

@@ -9,8 +9,17 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from api import dispatch
-from api.schemas import BidAccepted, BidCreate, HealthResponse, JobStatus, ParseAccepted
+from api.schemas import (
+    BidAccepted,
+    BidCreate,
+    BidderProfileItem,
+    HealthResponse,
+    JobStatus,
+    ParseAccepted,
+    TaskHistoryItem,
+)
 from src.config import settings
+from src.db.repository import list_profiles, list_tasks
 from src.pipeline import FILES_DIR, PARSED_DIR, _safe_filename
 
 router = APIRouter(prefix="/api")
@@ -113,3 +122,17 @@ def create_bid(body: BidCreate) -> BidAccepted:
         status="pending",
         job_url=f"/api/jobs/{job_id}",
     )
+
+
+@router.get("/tasks", response_model=list[TaskHistoryItem])
+async def list_task_history(limit: int = 100, offset: int = 0) -> list[TaskHistoryItem]:
+    """任务历史：从数据库读，跨重启可查（尽力而为，库不可用返回空）。"""
+    tasks = await list_tasks(limit=limit, offset=offset)
+    return [TaskHistoryItem(**item) for item in tasks]
+
+
+@router.get("/profiles", response_model=list[BidderProfileItem])
+async def list_bidder_profiles(limit: int = 100) -> list[BidderProfileItem]:
+    """投标人资料：编写任务提交时落库的公司资料。"""
+    profiles = await list_profiles(limit=limit)
+    return [BidderProfileItem(**item) for item in profiles]

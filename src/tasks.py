@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from src.celery_app import celery_app
+from src.db.repository import bid_summary, finish_task_sync, parse_summary
 from src.extraction.extractor import run_extraction
 from src.pipeline import run_bid_writer, run_parse
 from src.vectorstore.ingest import ingest_document
@@ -100,6 +101,7 @@ def run_parse_task(
 def parse_document(self, source_path: str, options: dict[str, Any]) -> dict[str, Any]:
     """Celery 入口：把 `update_state` 包装成进度回调后执行核心逻辑。"""
     started_at = time.time()
+    job_id = self.request.id
 
     def sink(messages: list[str]) -> None:
         self.update_state(
@@ -108,10 +110,15 @@ def parse_document(self, source_path: str, options: dict[str, Any]) -> dict[str,
         )
 
     reporter = ProgressReporter(sink)
-    result = run_parse_task(source_path, options, reporter.report)
-    result["progress"] = reporter.snapshot()
-    result["started_at"] = started_at
-    return result
+    try:
+        result = run_parse_task(source_path, options, reporter.report)
+        result["progress"] = reporter.snapshot()
+        result["started_at"] = started_at
+        finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
+        return result
+    except Exception as exc:
+        finish_task_sync(job_id, "failed", error=str(exc))
+        raise
 
 
 def run_bid_task(
@@ -135,6 +142,7 @@ def write_bid(
 ) -> dict[str, Any]:
     """Celery 入口：把 `update_state` 包装成进度回调后执行投标编写。"""
     started_at = time.time()
+    job_id = self.request.id
 
     def sink(messages: list[str]) -> None:
         self.update_state(
@@ -143,7 +151,12 @@ def write_bid(
         )
 
     reporter = ProgressReporter(sink)
-    result = run_bid_task(doc_id, profile, options, reporter.report)
-    result["progress"] = reporter.snapshot()
-    result["started_at"] = started_at
-    return result
+    try:
+        result = run_bid_task(doc_id, profile, options, reporter.report)
+        result["progress"] = reporter.snapshot()
+        result["started_at"] = started_at
+        finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
+        return result
+    except Exception as exc:
+        finish_task_sync(job_id, "failed", error=str(exc))
+        raise

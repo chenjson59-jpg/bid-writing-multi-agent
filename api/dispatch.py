@@ -19,6 +19,13 @@ from typing import Any
 from api.jobs import map_state
 from src.celery_app import celery_app
 from src.config import settings
+from src.db.repository import (
+    bid_summary,
+    finish_task_sync,
+    parse_summary,
+    save_profile_sync,
+    upsert_task_sync,
+)
 from src.tasks import ProgressReporter, run_bid_task, run_parse_task
 
 _JOB_KEY = "bidding:job:{job_id}"
@@ -194,6 +201,9 @@ class LocalBackend:
                         progress=reporter.snapshot(),
                         bid=result.get("bid"),
                     )
+                finish_task_sync(
+                    job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                )
             else:
                 result = run_parse_task(
                     payload["source_path"], payload["options"], reporter.report
@@ -205,6 +215,7 @@ class LocalBackend:
                         progress=reporter.snapshot(),
                         **_split_result(result),
                     )
+                finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
         except Exception as exc:  # noqa: BLE001 - 任务失败需落到任务视图
             with self._lock:
                 self._jobs[job_id].update(
@@ -213,6 +224,7 @@ class LocalBackend:
                     error=str(exc),
                     error_type=type(exc).__name__,
                 )
+            finish_task_sync(job_id, "failed", error=str(exc))
 
     def get_job(self, job_id: str) -> dict | None:
         with self._lock:
@@ -262,6 +274,14 @@ def submit_parse(
         "options": options,
         "created_at": time.time(),
     }
+    upsert_task_sync(
+        job_id=job_id,
+        kind="parse",
+        doc_id=doc_id,
+        source_name=source_name,
+        status="pending",
+        options=options,
+    )
     payload = {"source_path": source_path, "options": options}
     _get_backend().submit(job_id, "parse", payload, meta)
     return job_id
@@ -282,6 +302,17 @@ def submit_bid(
         "options": options,
         "created_at": time.time(),
     }
+    company_name = (profile or {}).get("company_name")
+    if company_name:
+        save_profile_sync(str(company_name), profile or {})
+    upsert_task_sync(
+        job_id=job_id,
+        kind="bid",
+        doc_id=doc_id,
+        source_name=doc_id,
+        status="pending",
+        options=options,
+    )
     payload = {"doc_id": doc_id, "profile": profile, "options": options}
     _get_backend().submit(job_id, "bid", payload, meta)
     return job_id
