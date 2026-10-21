@@ -4,4 +4,3 @@
 - bidding.parse_document：解析 + 结构化抽取 + 建立检索索引
 - bidding.write_bid：多角色编写投标文件
 """
-from src.celery_app import celery_app

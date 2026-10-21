@@ -40,8 +40,8 @@ def _table_to_text(table_html: str) -> str:
     parser = _TableExtractor()
     try:
         parser.feed(table_html)
-    except Exception:
-        return table_html  # 解析失败保留原始 HTML
+    except Exception:  # noqa: BLE001 - HTMLParser 可抛任意异常，降级保留原始 HTML
+        return table_html
     lines = [" | ".join(row) for row in parser.rows if row]
     return "\n".join(lines)
 
