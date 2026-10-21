@@ -8,13 +8,21 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 
-from api.schemas import DocumentSummary
-from src.pipeline import PARSED_DIR
+from api.schemas import BidHistoryItem, DocumentSummary
+from src.pipeline import BIDS_DIR, PARSED_DIR
 
 router = APIRouter(prefix="/api")
 
 _DOC_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+_BID_ID_RE = re.compile(r"^[0-9a-f]{16}-\d{8}-\d{6}$")
 _MAX_DOCUMENTS = 200
+_MAX_BIDS = 100
+_ALLOWED_BID_FILES = {"bid.md", "bid.docx", "report.json", "outline.json"}
+_MEDIA_TYPES = {
+    ".md": "text/markdown",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".json": "application/json",
+}
 
 
 def _load_manifest(doc_id: str) -> dict | None:
@@ -82,3 +90,55 @@ def preview_markdown(doc_id: str) -> Response:
     if not content.is_file():
         raise HTTPException(404, "文档不存在")
     return Response(content.read_text(encoding="utf-8"), media_type="text/markdown")
+
+
+@router.get("/bids", response_model=list[BidHistoryItem])
+def list_bids() -> list[BidHistoryItem]:
+    """标书历史：扫描产物目录，读回 report.json 的摘要。"""
+    from src.bid_writer.schema import BidReport
+
+    if not BIDS_DIR.is_dir():
+        return []
+
+    items: list[BidHistoryItem] = []
+    dirs = sorted(BIDS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        report = d / "report.json"
+        if not report.is_file():
+            continue
+        try:
+            data = json.loads(report.read_text(encoding="utf-8"))
+            summary = BidReport(**data).summary()
+        except (json.JSONDecodeError, OSError, TypeError):
+            continue
+        items.append(
+            BidHistoryItem(
+                bid_id=d.name,
+                generated_at=data.get("generated_at"),
+                summary=summary,
+            )
+        )
+        if len(items) >= _MAX_BIDS:
+            break
+    return items
+
+
+@router.get("/bids/{bid_id}/files/{name}")
+def download_bid_file(bid_id: str, name: str, download: bool = False) -> Response:
+    """产物文件下载，仅允许白名单文件，且路径必须落在产物目录内。"""
+    if not _BID_ID_RE.match(bid_id):
+        raise HTTPException(422, "bid_id 格式非法")
+    if name not in _ALLOWED_BID_FILES:
+        raise HTTPException(404, "文件不存在")
+
+    path = (BIDS_DIR / bid_id / name).resolve()
+    if not path.is_relative_to(BIDS_DIR.resolve()) or not path.is_file():
+        raise HTTPException(404, "文件不存在")
+
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
+    media_type = _MEDIA_TYPES.get(Path(name).suffix, "application/octet-stream")
+    return Response(path.read_bytes(), media_type=media_type, headers=headers)

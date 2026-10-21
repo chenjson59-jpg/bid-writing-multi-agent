@@ -19,7 +19,7 @@ from typing import Any
 from api.jobs import map_state
 from src.celery_app import celery_app
 from src.config import settings
-from src.tasks import ProgressReporter, run_parse_task
+from src.tasks import ProgressReporter, run_bid_task, run_parse_task
 
 _JOB_KEY = "bidding:job:{job_id}"
 _QUEUE_NAME = "bidding"
@@ -63,9 +63,9 @@ class CeleryBackend:
         return self._redis
 
     def submit(
-        self, job_id: str, source_path: str, options: dict, meta: dict
+        self, job_id: str, kind: str, payload: dict, meta: dict
     ) -> None:
-        from src.tasks import parse_document
+        from src.tasks import parse_document, write_bid
 
         # 先写任务标记（供 pending 阶段查询元数据），再入队
         self._r().set(
@@ -73,7 +73,15 @@ class CeleryBackend:
             json.dumps(meta),
             ex=settings.celery_result_expires,
         )
-        parse_document.apply_async(args=(source_path, options), task_id=job_id)
+        if kind == "bid":
+            write_bid.apply_async(
+                args=(payload["doc_id"], payload["profile"], payload["options"]),
+                task_id=job_id,
+            )
+        else:
+            parse_document.apply_async(
+                args=(payload["source_path"], payload["options"]), task_id=job_id
+            )
 
     def get_job(self, job_id: str) -> dict | None:
         raw = self._r().get(_JOB_KEY.format(job_id=job_id))
@@ -104,8 +112,10 @@ class CeleryBackend:
             view["progress"] = info.get("progress", [])
             view["started_at"] = _iso(info.get("started_at"))
         elif status == "succeeded" and isinstance(result.result, dict):
-            split = _split_result(result.result)
-            view.update(split)
+            if view.get("kind") == "bid":
+                view["bid"] = result.result.get("bid")
+            else:
+                view.update(_split_result(result.result))
             view["progress"] = result.result.get("progress", [])
             view["started_at"] = _iso(result.result.get("started_at"))
             view["finished_at"] = _iso(result.result.get("finished_at"))
@@ -140,7 +150,7 @@ class LocalBackend:
         )
 
     def submit(
-        self, job_id: str, source_path: str, options: dict, meta: dict
+        self, job_id: str, kind: str, payload: dict, meta: dict
     ) -> None:
         with self._lock:
             self._jobs[job_id] = {
@@ -156,9 +166,9 @@ class LocalBackend:
                 "error": None,
                 "error_type": None,
             }
-        self._executor.submit(self._run, job_id, source_path, options)
+        self._executor.submit(self._run, job_id, kind, payload)
 
-    def _run(self, job_id: str, source_path: str, options: dict) -> None:
+    def _run(self, job_id: str, kind: str, payload: dict) -> None:
         started_at = time.time()
         with self._lock:
             self._jobs[job_id]["status"] = "running"
@@ -170,14 +180,31 @@ class LocalBackend:
 
         reporter = ProgressReporter(sink)
         try:
-            result = run_parse_task(source_path, options, reporter.report)
-            with self._lock:
-                self._jobs[job_id].update(
-                    status="succeeded",
-                    finished_at=time.time(),
-                    progress=reporter.snapshot(),
-                    **_split_result(result),
+            if kind == "bid":
+                result = run_bid_task(
+                    payload["doc_id"],
+                    payload["profile"],
+                    payload["options"],
+                    reporter.report,
                 )
+                with self._lock:
+                    self._jobs[job_id].update(
+                        status="succeeded",
+                        finished_at=time.time(),
+                        progress=reporter.snapshot(),
+                        bid=result.get("bid"),
+                    )
+            else:
+                result = run_parse_task(
+                    payload["source_path"], payload["options"], reporter.report
+                )
+                with self._lock:
+                    self._jobs[job_id].update(
+                        status="succeeded",
+                        finished_at=time.time(),
+                        progress=reporter.snapshot(),
+                        **_split_result(result),
+                    )
         except Exception as exc:  # noqa: BLE001 - 任务失败需落到任务视图
             with self._lock:
                 self._jobs[job_id].update(
@@ -235,7 +262,28 @@ def submit_parse(
         "options": options,
         "created_at": time.time(),
     }
-    _get_backend().submit(job_id, source_path, options, meta)
+    payload = {"source_path": source_path, "options": options}
+    _get_backend().submit(job_id, "parse", payload, meta)
+    return job_id
+
+
+def submit_bid(
+    doc_id: str,
+    profile: dict[str, Any] | None,
+    options: dict[str, Any],
+) -> str:
+    """提交投标编写任务，返回 job_id。"""
+    job_id = uuid.uuid4().hex
+    meta = {
+        "job_id": job_id,
+        "kind": "bid",
+        "source_name": doc_id,
+        "doc_id": doc_id,
+        "options": options,
+        "created_at": time.time(),
+    }
+    payload = {"doc_id": doc_id, "profile": profile, "options": options}
+    _get_backend().submit(job_id, "bid", payload, meta)
     return job_id
 
 

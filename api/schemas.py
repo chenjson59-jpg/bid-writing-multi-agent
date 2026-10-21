@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -48,3 +48,26 @@ class DocumentSummary(BaseModel):
     sections: int
     has_extraction: bool
     parsed_at: str | None
+
+
+class BidCreate(BaseModel):
+    doc_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    profile: dict[str, Any] | None = None
+    max_revisions: int | None = Field(default=None, ge=0, le=3)
+    min_score: int | None = Field(default=None, ge=0, le=100)
+    max_sections: int | None = Field(default=None, ge=0, le=50)
+    export_word: bool = True
+
+
+class BidAccepted(BaseModel):
+    job_id: str
+    doc_id: str
+    kind: str
+    status: str
+    job_url: str
+
+
+class BidHistoryItem(BaseModel):
+    bid_id: str
+    generated_at: str | None
+    summary: dict[str, Any]

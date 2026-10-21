@@ -9,9 +9,9 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from api import dispatch
-from api.schemas import HealthResponse, JobStatus, ParseAccepted
+from api.schemas import BidAccepted, BidCreate, HealthResponse, JobStatus, ParseAccepted
 from src.config import settings
-from src.pipeline import FILES_DIR, _safe_filename
+from src.pipeline import FILES_DIR, PARSED_DIR, _safe_filename
 
 router = APIRouter(prefix="/api")
 
@@ -85,3 +85,31 @@ def get_job(job_id: str) -> JobStatus:
     if job is None:
         raise HTTPException(404, "任务不存在或已过期")
     return JobStatus(**job)
+
+
+@router.post("/bids", response_model=BidAccepted, status_code=202)
+def create_bid(body: BidCreate) -> BidAccepted:
+    extraction = PARSED_DIR / body.doc_id / "extraction.json"
+    if not extraction.is_file():
+        raise HTTPException(404, "文档没有结构化抽取结果")
+
+    if not dispatch.queue_available():
+        raise HTTPException(503, "任务队列不可用")
+    if dispatch.queue_depth() >= settings.api_max_pending_jobs:
+        raise HTTPException(429, "排队任务达到上限")
+
+    options = {
+        "max_revisions": body.max_revisions,
+        "min_score": body.min_score,
+        "max_sections": body.max_sections,
+        "export_word": body.export_word,
+    }
+    job_id = dispatch.submit_bid(body.doc_id, body.profile, options)
+
+    return BidAccepted(
+        job_id=job_id,
+        doc_id=body.doc_id,
+        kind="bid",
+        status="pending",
+        job_url=f"/api/jobs/{job_id}",
+    )

@@ -15,7 +15,7 @@ from typing import Any
 
 from src.celery_app import celery_app
 from src.extraction.extractor import run_extraction
-from src.pipeline import run_parse
+from src.pipeline import run_bid_writer, run_parse
 from src.vectorstore.ingest import ingest_document
 
 # A22：进度节流窗口与保留条数
@@ -109,6 +109,41 @@ def parse_document(self, source_path: str, options: dict[str, Any]) -> dict[str,
 
     reporter = ProgressReporter(sink)
     result = run_parse_task(source_path, options, reporter.report)
+    result["progress"] = reporter.snapshot()
+    result["started_at"] = started_at
+    return result
+
+
+def run_bid_task(
+    doc_id: str,
+    profile: dict[str, Any] | None,
+    options: dict[str, Any] | None,
+    report: Callable[[str], None],
+) -> dict[str, Any]:
+    """投标编写核心逻辑：规划 → 分章节写作 → 汇总，返回 bid 摘要。"""
+    report("规划章节")
+    result = run_bid_writer(doc_id, profile=profile, options=options)
+    return {"bid": result.summary()}
+
+
+@celery_app.task(bind=True, name="bidding.write_bid")
+def write_bid(
+    self,
+    doc_id: str,
+    profile: dict[str, Any] | None,
+    options: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Celery 入口：把 `update_state` 包装成进度回调后执行投标编写。"""
+    started_at = time.time()
+
+    def sink(messages: list[str]) -> None:
+        self.update_state(
+            state="PROGRESS",
+            meta={"progress": messages, "started_at": started_at},
+        )
+
+    reporter = ProgressReporter(sink)
+    result = run_bid_task(doc_id, profile, options, reporter.report)
     result["progress"] = reporter.snapshot()
     result["started_at"] = started_at
     return result

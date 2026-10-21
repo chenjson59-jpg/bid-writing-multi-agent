@@ -1,7 +1,7 @@
-const { contextBridge } = require('electron')
+const { contextBridge, ipcRenderer } = require('electron')
 
-// 桌面能力占位桥：后续接入「打开文件 / 定位目录」的受限 IPC（仅 upload/ 白名单）。
+// 暴露受限桌面能力：打开文件 / 定位目录，均走主进程白名单校验（开发文档 §11）。
 contextBridge.exposeInMainWorld('desktop', {
-  openPath: () => Promise.resolve({ ok: false, error: '未实现' }),
-  showItemInFolder: () => Promise.resolve({ ok: false, error: '未实现' }),
+  openPath: (target) => ipcRenderer.invoke('desktop:open-path', target),
+  showItemInFolder: (target) => ipcRenderer.invoke('desktop:show-in-folder', target),
 })

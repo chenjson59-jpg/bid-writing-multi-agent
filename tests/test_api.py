@@ -1,5 +1,6 @@
 """接口层测试：状态映射、进度节流、上传校验与端点。"""
 import hashlib
+import json
 import time
 from dataclasses import dataclass, field
 
@@ -10,6 +11,7 @@ from api import dispatch
 from api.jobs import map_state
 from api.main import app
 from src import tasks
+from src.bid_writer.schema import BidReport
 
 
 @pytest.fixture
@@ -21,9 +23,14 @@ def local_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "task_backend", "local")
     monkeypatch.setattr(dispatch, "_backend", None)
     files = tmp_path / "upload" / "files"
+    parsed = tmp_path / "upload" / "parsed"
+    bids = tmp_path / "upload" / "bids"
     monkeypatch.setattr(routes, "FILES_DIR", files)
     monkeypatch.setattr(routes, "_INCOMING", files / ".incoming")
-    monkeypatch.setattr(library, "PARSED_DIR", tmp_path / "upload" / "parsed")
+    monkeypatch.setattr(routes, "PARSED_DIR", parsed)
+    monkeypatch.setattr(library, "PARSED_DIR", parsed)
+    monkeypatch.setattr(library, "BIDS_DIR", bids)
+    return tmp_path
 
 
 @pytest.fixture
@@ -204,3 +211,90 @@ def test_markdown_invalid_doc_id(client):
 def test_markdown_not_found(client):
     resp = client.get("/api/documents/0123456789abcdef/markdown")
     assert resp.status_code == 404
+
+
+# ---- 投标编写 ----
+
+def test_bids_requires_extraction(client):
+    resp = client.post("/api/bids", json={"doc_id": "0123456789abcdef"})
+    assert resp.status_code == 404
+
+
+def test_bids_invalid_doc_id(client):
+    resp = client.post("/api/bids", json={"doc_id": "xyz"})
+    assert resp.status_code == 422
+
+
+def test_bids_submit_and_poll(client, monkeypatch, local_backend):
+    parsed = local_backend / "upload" / "parsed" / "0123456789abcdef"
+    parsed.mkdir(parents=True)
+    (parsed / "extraction.json").write_text("{}", encoding="utf-8")
+
+    def fake_run_bid_writer(doc_id, profile=None, options=None):
+        return BidReport(
+            doc_id=doc_id,
+            project_name="测试项目",
+            bidder="测试公司",
+            generated_at="2026-10-22T00:00:00+08:00",
+            total_sections=1,
+            total_words=100,
+        )
+
+    monkeypatch.setattr(tasks, "run_bid_writer", fake_run_bid_writer)
+
+    resp = client.post(
+        "/api/bids",
+        json={"doc_id": "0123456789abcdef", "profile": {"company_name": "测试公司"}},
+    )
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["kind"] == "bid"
+    assert data["doc_id"] == "0123456789abcdef"
+
+    job = _poll(client, data["job_id"])
+    assert job["status"] == "succeeded"
+    assert job["bid"]["project_name"] == "测试项目"
+    assert job["bid"]["bidder"] == "测试公司"
+
+
+def test_bids_history(client, local_backend):
+    bids_dir = local_backend / "upload" / "bids"
+    bid_dir = bids_dir / "0123456789abcdef-20261022-120000"
+    bid_dir.mkdir(parents=True)
+    report = BidReport(
+        doc_id="0123456789abcdef",
+        project_name="测试项目",
+        bidder="测试公司",
+        generated_at="2026-10-22T12:00:00+08:00",
+        total_sections=1,
+        total_words=100,
+        output_dir=str(bid_dir),
+        markdown_path=str(bid_dir / "bid.md"),
+    )
+    (bid_dir / "report.json").write_text(
+        json.dumps(report.to_dict(), ensure_ascii=False), encoding="utf-8"
+    )
+
+    resp = client.get("/api/bids")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["bid_id"] == "0123456789abcdef-20261022-120000"
+    assert data[0]["summary"]["project_name"] == "测试项目"
+
+
+def test_bids_file_download(client, local_backend):
+    bids_dir = local_backend / "upload" / "bids"
+    bid_dir = bids_dir / "0123456789abcdef-20261022-120000"
+    bid_dir.mkdir(parents=True)
+    (bid_dir / "bid.md").write_text("# 标题", encoding="utf-8")
+
+    resp = client.get("/api/bids/0123456789abcdef-20261022-120000/files/bid.md")
+    assert resp.status_code == 200
+    assert resp.text == "# 标题"
+
+    resp = client.get("/api/bids/0123456789abcdef-20261022-120000/files/hack.exe")
+    assert resp.status_code == 404
+
+    resp = client.get("/api/bids/xyz/files/bid.md")
+    assert resp.status_code == 422
