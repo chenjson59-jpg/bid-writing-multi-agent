@@ -22,7 +22,6 @@ dependencies = [
     "sqlalchemy>=2.0",
     "uvicorn[standard]>=0.54.0",
     "weasyprint>=70.0",
-    "zai-sdk>=0.2.3",
 ]
 
 [dependency-groups]

@@ -13,6 +13,7 @@ __pycache__/
 upload/
 chroma_db/
 *.log
+dump.rdb
 
 # 招标文件原文（不提交到公开仓库）
 招标文件/

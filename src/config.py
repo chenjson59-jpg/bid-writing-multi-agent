@@ -25,19 +25,22 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     llm_provider: str = "deepseek"
     deepseek_model: str = "deepseek-flash"
-    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_base_url: str = "https://ark.cn-beijing.volces.com/api/coding/v3"
     llm_timeout: int = 120
     llm_max_retries: int = 2
     llm_temperature: float = 0.0
     llm_max_tokens: int = 32768
     llm_thinking: str = "disabled"
 
-    # ---- 嵌入与检索（智谱 + Chroma）----
-    zhipu_api_key: str = ""
-    zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4/"
-    embedding_model: str = "embedding-3"
-    embedding_dimensions: int = 2048
-    embedding_batch_size: int = 16
+    # ---- 嵌入与检索（火山方舟 + Chroma）----
+    embedding_api_key: str = ""
+    embedding_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    embedding_model: str = "doubao-embedding-large"
+    embedding_dimensions: int = 2048  # 可选 4096/2048/1024/512
+    embedding_batch_size: int = 10  # 火山方舟 Embeddings API 单次最多 10 条
+    embedding_max_retries: int = 10  # 429 限流时 SDK 自动指数退避重试次数
+    embedding_timeout: int = 120
+    embedding_request_interval: float = 1.0  # 批次间睡秒数，规避账户 QPS 限流
     chroma_dir: str = "./chroma_db"
 
     # ---- 接口服务 ----

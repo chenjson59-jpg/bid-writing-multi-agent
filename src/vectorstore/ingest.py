@@ -13,7 +13,7 @@ from src.config import settings
 from src.errors import IngestError
 from src.parsing.models import ParsedDocument
 from src.vectorstore.chunking import chunk_document
-from src.vectorstore.embedding import ZhipuEmbeddingFunction
+from src.vectorstore.embedding import VolcengineEmbeddingFunction
 
 UPSERT_BATCH = 64  # A16.7.2.2 分批 upsert 的默认批大小
 
@@ -59,12 +59,12 @@ def get_client():
 
 
 def get_collection(name: str, client=None):
-    """获取或创建指定集合（cosine 距离 + 智谱嵌入函数）。"""
+    """获取或创建指定集合（cosine 距离 + 火山方舟嵌入函数）。"""
     client = client or get_client()
     return client.get_or_create_collection(
         name=name,
         metadata={"hnsw:space": "cosine"},
-        embedding_function=ZhipuEmbeddingFunction(),
+        embedding_function=VolcengineEmbeddingFunction(),
     )
 
 

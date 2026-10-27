@@ -1,18 +1,20 @@
-"""智谱嵌入包装（ZhipuEmbeddingFunction）。
+"""火山方舟嵌入包装（VolcengineEmbeddingFunction）。
 
-包装 zai-sdk 调用智谱 `embedding-3`，供 Chroma 集合作为 embedding_function。
-显式指定 `encoding_format="float"`（zai-sdk 原样透传），避免 OpenAI SDK 强制
-base64 导致的协议不兼容（见 `README.md` 设计要点）。
+用 OpenAI 兼容 SDK 调用火山方舟 `doubao-embedding-large`，供 Chroma 集合作为
+embedding_function。显式指定 `encoding_format="float"` 返回浮点向量，避免 base64
+导致协议不兼容。火山方舟该模型支持 `dimensions` 降维（4096/2048/1024/512）。
 """
 from __future__ import annotations
+
+import time
 
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from src.config import settings
 
 
-class ZhipuEmbeddingFunction(EmbeddingFunction[Documents]):
-    """把文本列表转成智谱嵌入向量，内部按 `EMBEDDING_BATCH_SIZE` 分批。"""
+class VolcengineEmbeddingFunction(EmbeddingFunction[Documents]):
+    """把文本列表转成火山方舟嵌入向量，内部按 `EMBEDDING_BATCH_SIZE` 分批。"""
 
     def __init__(
         self,
@@ -23,8 +25,8 @@ class ZhipuEmbeddingFunction(EmbeddingFunction[Documents]):
         dimensions: int | None = None,
         batch_size: int | None = None,
     ) -> None:
-        self._api_key = api_key or settings.zhipu_api_key
-        self._base_url = base_url or settings.zhipu_base_url
+        self._api_key = api_key or settings.embedding_api_key
+        self._base_url = base_url or settings.embedding_base_url
         self._model = model or settings.embedding_model
         self._dimensions = dimensions or settings.embedding_dimensions
         self._batch_size = batch_size or settings.embedding_batch_size
@@ -32,15 +34,18 @@ class ZhipuEmbeddingFunction(EmbeddingFunction[Documents]):
 
     @staticmethod
     def name() -> str:
-        return "zhipu-embedding-3"
+        return "volcengine-doubao-embedding"
 
     def _get_client(self):
         """惰性创建客户端，供同一次分块入库复用。"""
         if self._client is None:
-            from zai import ZhipuAiClient
+            from openai import OpenAI
 
-            self._client = ZhipuAiClient(
-                api_key=self._api_key, base_url=self._base_url
+            self._client = OpenAI(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                max_retries=settings.embedding_max_retries,
+                timeout=settings.embedding_timeout,
             )
         return self._client
 
@@ -57,4 +62,6 @@ class ZhipuEmbeddingFunction(EmbeddingFunction[Documents]):
             )
             ordered = sorted(resp.data, key=lambda e: e.index)
             embeddings.extend([e.embedding for e in ordered])
+            if i + self._batch_size < len(input):
+                time.sleep(settings.embedding_request_interval)
         return embeddings

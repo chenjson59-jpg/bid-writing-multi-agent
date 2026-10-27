@@ -9,7 +9,7 @@ import threading
 from typing import Any
 
 from src.config import settings
-from src.vectorstore.embedding import ZhipuEmbeddingFunction
+from src.vectorstore.embedding import VolcengineEmbeddingFunction
 from src.vectorstore.ingest import get_client
 
 
@@ -29,7 +29,7 @@ class ChromaRetriever:
         try:
             c = client or get_client()
             self.collection = c.get_collection(
-                collection_name, embedding_function=ZhipuEmbeddingFunction()
+                collection_name, embedding_function=VolcengineEmbeddingFunction()
             )
         except Exception:  # noqa: BLE001 - 集合不存在或嵌入不可用时检索降级为空列表
             self.collection = None

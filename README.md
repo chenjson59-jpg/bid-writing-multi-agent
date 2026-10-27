@@ -20,7 +20,7 @@ src/
     local_parser.py      #   PyMuPDF 兜底，按书签切分
     builder.py           #   两条路径统一成 ParsedDocument 并落盘
   extraction/            # 章节级 map-reduce 结构化抽取
-  vectorstore/           # 章节感知分块 + 智谱嵌入 + Chroma
+  vectorstore/           # 章节感知分块 + 火山方舟嵌入 + Chroma
   cli/                   # doctor / parse / extract / ingest / inspect
 ```
 
@@ -28,7 +28,7 @@ src/
 
 ```bash
 uv sync
-cp .env.example .env      # 填入 DEEPSEEK / ZHIPU / MINERU 三个 API Key
+cp .env.example .env      # 填入 DEEPSEEK(火山方舟) / EMBEDDING / MINERU 三个 API Key
 ```
 
 若 `uv sync` 报 `failed to remove directory ... 拒绝访问 (os error 5)`，
@@ -87,9 +87,9 @@ chroma_db/                   # 本地向量库
   字体元数据也大量损坏，书签是唯一可靠来源。
 - **MinerU 单文件限 200 页**，超过时自动均衡分片；合并时用 `content_list.json`
   的 `page_idx` 加分片页偏移还原原始页码。
-- **嵌入走 `zai-sdk`**。`openai` SDK 在未显式传参时会强制
-  `encoding_format="base64"`，而智谱兼容端点不支持；`zai-sdk` 原样透传，
-  代码里再显式指定 `"float"`。
+- **嵌入走火山方舟**。用 `openai` SDK 直连火山方舟 OpenAI 兼容端点
+  （`EMBEDDING_BASE_URL`），模型 `doubao-embedding-large`，显式传
+  `encoding_format="float"` 返回浮点向量。
 - **入库幂等**：先 upsert 新块，再删除同一 `doc_id` 下不再存在的旧块；
   内容未变的块按 `content_sha256` 跳过重新嵌入。
 - **DeepSeek 是推理模型**：`deepseek-flash` 默认开启思考，思维链与正文共享

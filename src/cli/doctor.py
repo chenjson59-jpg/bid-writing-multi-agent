@@ -32,11 +32,11 @@ def _check_dirs() -> dict[str, bool]:
 
 def _probe_embeddings() -> dict:
     """做一次真实嵌入探测，确认维度与编码格式。"""
-    from src.vectorstore.embedding import ZhipuEmbeddingFunction
+    from src.vectorstore.embedding import VolcengineEmbeddingFunction
 
     try:
-        fn = ZhipuEmbeddingFunction()
-        vectors = fn(["智谱嵌入探测"])
+        fn = VolcengineEmbeddingFunction()
+        vectors = fn(["火山方舟嵌入探测"])
         return {
             "ok": True,
             "model": settings.embedding_model,
@@ -67,7 +67,7 @@ def run(args) -> int:
     report = {
         "config": {
             "deepseek_api_key": bool(settings.deepseek_api_key),
-            "zhipu_api_key": bool(settings.zhipu_api_key),
+            "embedding_api_key": bool(settings.embedding_api_key),
             "mineru_api_key": bool(settings.mineru_api_key),
         },
         "dirs": _check_dirs(),
