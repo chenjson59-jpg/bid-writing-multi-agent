@@ -113,6 +113,7 @@ class CeleryBackend:
             "error": None,
             "error_type": None,
         }
+        view["created_at"] = _iso(view.get("created_at"))
 
         if status == "running":
             info = result.info if isinstance(result.info, dict) else {}
