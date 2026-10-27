@@ -17,8 +17,29 @@ export class ApiError extends Error {
   }
 }
 
+// 打包后被 Electron 以 file:// 加载时，相对路径 /api 无法命中后端，
+// 此时回退到本地 FastAPI 绝对地址；dev server 下仍走 vite proxy。
+const API_BASE =
+  typeof window !== 'undefined' && window.location.protocol === 'file:'
+    ? 'http://localhost:8001'
+    : ''
+
+function apiUrl(path: string): string {
+  return API_BASE + path
+}
+
+// 公网部署的访问令牌，构建时通过 VITE_API_TOKEN 注入；本地开发为空则不携带。
+const API_TOKEN = (import.meta.env.VITE_API_TOKEN as string | undefined) || ''
+
+function authHeaders(): Record<string, string> {
+  return API_TOKEN ? { 'X-API-Token': API_TOKEN } : {}
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, init)
+  const resp = await fetch(apiUrl(path), {
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+  })
   if (!resp.ok) {
     throw new ApiError(resp.status, await readError(resp))
   }
@@ -47,7 +68,9 @@ export function listDocuments(): Promise<DocumentSummary[]> {
 }
 
 export async function getMarkdown(docId: string): Promise<string> {
-  const resp = await fetch(`/api/documents/${docId}/markdown`)
+  const resp = await fetch(apiUrl(`/api/documents/${docId}/markdown`), {
+    headers: authHeaders(),
+  })
   if (!resp.ok) {
     throw new ApiError(resp.status, await readError(resp))
   }
@@ -71,7 +94,10 @@ export function uploadParse(
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `/api/parse?${params.toString()}`)
+    xhr.open('POST', apiUrl(`/api/parse?${params.toString()}`))
+    if (API_TOKEN) {
+      xhr.setRequestHeader('X-API-Token', API_TOKEN)
+    }
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
         onProgress(Math.round((e.loaded / e.total) * 100))
@@ -120,6 +146,8 @@ export function listBids(): Promise<BidHistoryItem[]> {
 }
 
 // 产物下载走浏览器导航，由响应头决定附件或内联；预览场景直接 fetch 文本。
+// 导航类请求无法携带自定义头，令牌经 query 传递（服务端中间件同时接受两种方式）。
 export function bidFileUrl(bidId: string, name: string, download: boolean): string {
-  return `/api/bids/${bidId}/files/${name}?download=${download}`
+  const url = apiUrl(`/api/bids/${bidId}/files/${name}?download=${download}`)
+  return API_TOKEN ? `${url}&token=${encodeURIComponent(API_TOKEN)}` : url
 }

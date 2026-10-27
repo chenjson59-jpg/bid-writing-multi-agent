@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api import library, routes
 from src.config import settings
@@ -37,6 +40,29 @@ def create_app() -> FastAPI:
 
     app.include_router(routes.router)
     app.include_router(library.router)
+
+    @app.middleware("http")
+    async def api_token_guard(request: Request, call_next):
+        """简易鉴权：设置 API_TOKEN 后，/api 需携带 X-API-Token 头或 ?token= 参数。
+
+        健康检查与 CORS 预检（OPTIONS）放行；静态页面不拦截，拦的是烧 LLM 的接口。
+        """
+        required = settings.api_token
+        if (
+            required
+            and request.method != "OPTIONS"
+            and request.url.path.startswith("/api")
+            and request.url.path != "/api/health"
+        ):
+            provided = request.headers.get("x-api-token") or request.query_params.get("token")
+            if provided != required:
+                return JSONResponse({"detail": "未授权：缺少有效的访问令牌"}, status_code=401)
+        return await call_next(request)
+
+    # 单端口部署：挂载前端打包产物（dist 不存在说明是开发环境，走 vite dev server）
+    dist_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if dist_dir.exists():
+        app.mount("/", StaticFiles(directory=dist_dir, html=True), name="spa")
 
     return app
 

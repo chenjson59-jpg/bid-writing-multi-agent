@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     api_max_concurrent_parses: int = 1
     api_max_pending_jobs: int = 2
     api_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,null"
+    api_token: str = ""  # 非空时 /api 需携带 X-API-Token 头或 ?token= 参数（公网部署防滥用）
 
     # ---- 任务队列（Celery + Redis）----
     task_backend: str = "celery"
