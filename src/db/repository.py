@@ -4,16 +4,14 @@
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 
 from src.db.models import BidderProfile, TaskHistory
-from src.db.session import get_session_factory
+from src.db.session import get_session_factory, run_isolated
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +21,8 @@ def _now() -> datetime:
 
 
 def _run_async(coro) -> None:
-    """在无事件循环的线程里运行协程；已有事件循环则交给后台线程。"""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        asyncio.run(coro)
-        return
-    threading.Thread(target=asyncio.run, args=(coro,), daemon=True).start()
+    """在独立事件循环里运行协程（不与 FastAPI 主循环共享连接）。"""
+    run_isolated(coro)
 
 
 def parse_summary(result: dict[str, Any]) -> dict[str, Any]:
@@ -257,3 +250,7 @@ def finish_task_sync(
 
 def save_profile_sync(company_name: str, data: dict[str, Any]) -> None:
     _run_async(save_profile(company_name, data))
+
+
+def list_profiles_sync(limit: int = 100) -> list[dict[str, Any]]:
+    return run_isolated(list_profiles(limit=limit)) or []

@@ -21,6 +21,8 @@ from api.schemas import (
     HealthResponse,
     JobAccepted,
     JobStatus,
+    JobTraceResponse,
+    MetricsResponse,
     ParseAccepted,
     SectionDetail,
     SectionInfo,
@@ -38,6 +40,8 @@ from src.db.repository import (
     update_profile,
 )
 from src.errors import BidWriteError
+from src.observability import job_trace
+from src.observability import metrics as job_metrics
 from src.pipeline import BIDS_DIR, FILES_DIR, PARSED_DIR, _safe_filename
 
 router = APIRouter(prefix="/api")
@@ -123,6 +127,33 @@ def get_job(job_id: str) -> JobStatus:
     if job is None:
         raise HTTPException(404, "任务不存在或已过期")
     return JobStatus(**job)
+
+
+@router.get("/jobs/{job_id}/trace", response_model=JobTraceResponse)
+def get_job_trace(job_id: str) -> JobTraceResponse:
+    """任务轨迹：各阶段耗时与终态异常，失败任务据此定位问题阶段。"""
+    trace = job_trace(job_id)
+    if trace is None:
+        raise HTTPException(404, "任务轨迹不存在（任务未执行或日志已清理）")
+    return JobTraceResponse(**trace)
+
+
+@router.get("/metrics", response_model=MetricsResponse)
+def get_metrics() -> MetricsResponse:
+    """运行指标：队列深度、任务终态分布、平均耗时与最近失败。"""
+    backend = settings.task_backend
+    snapshot = job_metrics()
+    return MetricsResponse(
+        task_backend=backend,
+        broker_ok=dispatch.queue_available() if backend == "celery" else None,
+        worker_ok=dispatch.worker_status(),
+        queue_depth=dispatch.queue_depth(),
+        jobs_total=snapshot["jobs_total"],
+        by_status=snapshot["by_status"],
+        by_kind=snapshot["by_kind"],
+        avg_duration_ms=snapshot["avg_duration_ms"],
+        recent_failures=snapshot["recent_failures"],
+    )
 
 
 @router.post("/jobs/{job_id}/cancel")

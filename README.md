@@ -118,6 +118,8 @@ uv run python -m api
 | GET | `/api/jobs/{job_id}` | 查询任务状态、进度与结果（parse / bid 共用） |
 | POST | `/api/jobs/{job_id}/cancel` | 取消未结束的任务（Celery `revoke`；local 后端丢弃结果）；已结束返回 **409** |
 | POST | `/api/jobs/{job_id}/retry` | 仅失败任务可重试，参数取自任务历史，返回新 `job_id`（**202**） |
+| GET | `/api/jobs/{job_id}/trace` | 任务轨迹：各阶段耗时、失败阶段与异常类型（无日志返回 **404**） |
+| GET | `/api/metrics` | 运行指标：终态分布、任务类型分布、平均耗时、最近失败（近 500 个任务） |
 | GET | `/api/documents` | 已解析文档列表（读取 `upload/parsed`） |
 | DELETE | `/api/documents/{doc_id}` | 删除解析结果与上传原件；不存在返回 **404** |
 | GET | `/api/bids` | 历史投标产物列表（读取 `upload/bids/*/report.json`） |
@@ -265,6 +267,29 @@ curl -OJ "http://127.0.0.1:8001/api/bids/<bid_id>/sections/section_3/file"
   失败可在任务页重试；新增任务后同样需**重启 worker**。
 - 旧产物（没有 `sections/`）首次访问章节接口时会按 `bid.md` + `outline.json`
   反推补齐，历史产物因此也能编辑与锁定。
+
+### 可观测性
+
+每个任务执行时都会写一份结构化日志 `<LOG_DIR>/jobs/<job_id>.jsonl`（默认
+`logs/jobs/`），事件为 `start` / `stage_start` / `stage_done` / `end`，字段包括
+阶段名、耗时、终态、异常类型与消息。`job_id` 通过 ContextVar 贯穿解析、抽取、
+入库与编写流水线，无需在各函数间显式传参。
+
+```bash
+# 任务轨迹：阶段耗时 + 失败点（status / stage / error / error_type / stages）
+curl "http://127.0.0.1:8001/api/jobs/<job_id>/trace"
+
+# 运行指标：终态分布、类型分布、平均耗时、最近 10 条失败
+curl "http://127.0.0.1:8001/api/metrics"
+```
+
+- `GET /api/jobs/{job_id}` 也返回 `stage` 字段（当前/最后阶段），前端可直接显示。
+- 失败任务用 `trace` 定位到具体阶段（如 `解析文档`、`规划章节`、`章节写作`），
+  `error_type` 给出异常类名；`stages` 里是已完成阶段的毫秒耗时。
+- 同名阶段连续上报只记一次；日志缺失（任务未执行或已清理）返回 **404**。
+- 指标接口额外返回 `task_backend` / `broker_ok` / `worker_ok` / `queue_depth`，
+  与 `/api/health` 一致，便于脚本一次取全。
+- 日志目录由 `LOG_DIR` 控制（相对路径按仓库根解析），已加入 `.gitignore`。
 
 ## 异步任务（Celery + Redis）
 

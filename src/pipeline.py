@@ -18,6 +18,7 @@ from src.config import REPO_ROOT, settings
 from src.errors import BidWriteError, ConfigError, ParseError
 from src.extraction.extractor import run_extraction
 from src.extraction.schema import TenderDocument
+from src.observability import stage
 from src.parsing.builder import assemble, merge_mineru
 from src.parsing.local_parser import parse_local
 from src.parsing.mineru_client import parse_cloud
@@ -331,6 +332,7 @@ def run_bid_writer(
 
     meter = default_meter()
     caller = meter.wrap(caller or default_caller())
+    stage("规划章节")
     plans = plan_sections(
         tender,
         profile_obj,
@@ -342,6 +344,7 @@ def run_bid_writer(
     retriever = ChromaRetriever(
         collection_name(tender.doc_type), doc_id=doc_id
     )
+    stage("章节写作")
     drafts = run_write_pipeline(
         plans,
         tender,
@@ -353,6 +356,7 @@ def run_bid_writer(
     )
 
     now = datetime.now()
+    stage("合并与导出")
     markdown = assemble_markdown(
         tender.project_name,
         profile_obj.company_name,

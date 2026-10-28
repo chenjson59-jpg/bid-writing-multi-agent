@@ -49,6 +49,41 @@ class JobStatus(BaseModel):
     bid: dict[str, Any] | None = None
     error: str | None = None
     error_type: str | None = None
+    stage: str | None = None  # 当前/最后阶段（来自任务轨迹，P1-9）
+
+
+class JobTraceStage(BaseModel):
+    name: str | None = None
+    duration_ms: int = 0
+
+
+class JobTraceResponse(BaseModel):
+    """任务轨迹：阶段耗时与终态异常，失败任务据此定位问题阶段。"""
+
+    job_id: str
+    kind: str = ""
+    status: str
+    stage: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    stages: list[JobTraceStage] = []
+    error: str | None = None
+    error_type: str | None = None
+
+
+class MetricsResponse(BaseModel):
+    """运行指标：队列状态、任务终态分布与平均耗时。"""
+
+    task_backend: str
+    broker_ok: bool | None = None
+    worker_ok: bool | None = None
+    queue_depth: int = 0
+    jobs_total: int = 0
+    by_status: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    avg_duration_ms: dict[str, int] = {}
+    recent_failures: list[dict[str, Any]] = []
 
 
 class DocumentSummary(BaseModel):

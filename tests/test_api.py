@@ -21,6 +21,9 @@ def local_backend(monkeypatch, tmp_path):
     from src.config import settings
 
     monkeypatch.setattr(settings, "task_backend", "local")
+    monkeypatch.setattr(settings, "log_dir", str(tmp_path / "logs"))
+    # 测试不连真实 PostgreSQL：持久化降级为无操作，避免连接跨事件循环泄漏
+    monkeypatch.setattr(settings, "database_url", "")
     monkeypatch.setattr(dispatch, "_backend", None)
     files = tmp_path / "upload" / "files"
     parsed = tmp_path / "upload" / "parsed"
@@ -707,3 +710,60 @@ def test_rewrite_bid_sections(client, section_artifact, monkeypatch):
         ).status_code
         == 404
     )
+
+
+# ---- 可观测性：任务轨迹与指标（P1-9）----
+
+
+def test_job_trace_locates_failure(client, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("解析失败")
+
+    monkeypatch.setattr(tasks, "run_parse", boom)
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"%PDF-1.4", "application/pdf")}
+    )
+    job_id = resp.json()["job_id"]
+    _poll(client, job_id)
+
+    # 任务视图直接给出阶段，失败原因仍保留在 error 字段
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["status"] == "failed"
+    assert job["stage"] == "解析文档"
+    assert job["error"] == "解析失败"
+
+    trace = client.get(f"/api/jobs/{job_id}/trace")
+    assert trace.status_code == 200
+    data = trace.json()
+    assert data["status"] == "failed"
+    assert data["stage"] == "解析文档"
+    assert data["error_type"] == "ValueError"
+    assert data["duration_ms"] is not None
+    assert [s["name"] for s in data["stages"]] == ["解析文档"]
+
+
+def test_job_trace_not_found(client):
+    assert client.get("/api/jobs/0000000000000000/trace").status_code == 404
+
+
+def test_metrics_endpoint(client):
+    resp = client.get("/api/metrics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_backend"] == "local"
+    assert data["queue_depth"] == 0
+    assert data["jobs_total"] == 0
+    assert data["recent_failures"] == []
+
+
+def test_metrics_counts_successful_parse(client, monkeypatch):
+    monkeypatch.setattr(tasks, "run_parse", lambda *a, **k: _FakeDoc())
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"%PDF-1.4", "application/pdf")}
+    )
+    _poll(client, resp.json()["job_id"])
+
+    data = client.get("/api/metrics").json()
+    assert data["by_status"] == {"succeeded": 1}
+    assert data["by_kind"] == {"parse": 1}
+    assert data["avg_duration_ms"]["parse"] >= 0

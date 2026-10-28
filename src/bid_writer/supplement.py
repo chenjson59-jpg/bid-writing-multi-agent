@@ -6,7 +6,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from datetime import datetime
@@ -92,15 +91,10 @@ def restore_drafts(bid_id: str) -> tuple[list[SectionDraft], dict[str, Any], Pat
 
 def _load_profile(company_name: str) -> BidderProfile:
     """按公司名从资料库取回资料；数据库不可用时退化为仅含公司名，避免阻断补写。"""
-    from src.db.repository import list_profiles
-    from src.db.session import init_db
-
-    async def _run() -> list[dict[str, Any]]:
-        await init_db()
-        return await list_profiles(limit=100)
+    from src.db.repository import list_profiles_sync
 
     try:
-        items = asyncio.run(_run())
+        items = list_profiles_sync(limit=100)
     except Exception:  # noqa: BLE001 - 资料库不可用时仍可补写
         items = []
     for item in items:

@@ -26,6 +26,7 @@ from src.db.repository import (
     save_profile_sync,
     upsert_task_sync,
 )
+from src.observability import job_scope, latest_stage
 from src.tasks import (
     ProgressReporter,
     run_bid_task,
@@ -125,8 +126,10 @@ class CeleryBackend:
             "bid": None,
             "error": None,
             "error_type": None,
+            "stage": None,
         }
         view["created_at"] = _iso(view.get("created_at"))
+        view["stage"] = latest_stage(job_id)
 
         if status == "running":
             info = result.info if isinstance(result.info, dict) else {}
@@ -215,76 +218,70 @@ class LocalBackend:
                 self._jobs[job_id]["progress"] = messages
 
         reporter = ProgressReporter(sink)
-        try:
-            if kind == "supplement":
-                result = run_supplement_task(payload["bid_id"], reporter.report)
+        # 任务上下文：流水线内的 stage() 打点会写入该 job 的轨迹（P1-9）
+        with job_scope(job_id, kind) as trace:
+            try:
+                fields, summary = self._execute(job_id, kind, payload, reporter)
+                with self._lock:
+                    cancelled = bool(self._jobs[job_id].get("cancelled"))
+                # 先落轨迹再暴露终态：轮询看到 succeeded 时轨迹已经可查
+                if cancelled:
+                    trace.finish("failed", RuntimeError("任务已取消"))
+                else:
+                    trace.finish("succeeded")
+                written = self._finish(
+                    job_id, status="succeeded", finished_at=time.time(), **fields
+                )
+                if written and summary is not None:
+                    finish_task_sync(job_id, "succeeded", summary=summary)
+            except Exception as exc:  # noqa: BLE001 - 任务失败需落到任务视图
+                trace.finish("failed", exc)
                 written = self._finish(
                     job_id,
-                    status="succeeded",
+                    status="failed",
                     finished_at=time.time(),
-                    progress=reporter.snapshot(),
-                    bid=result.get("bid"),
+                    error=str(exc),
+                    error_type=type(exc).__name__,
                 )
                 if written:
-                    finish_task_sync(
-                        job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
-                    )
-            elif kind == "rewrite":
-                result = run_section_rewrite_task(
-                    payload["bid_id"], payload.get("section_ids"), reporter.report
-                )
-                written = self._finish(
-                    job_id,
-                    status="succeeded",
-                    finished_at=time.time(),
-                    progress=reporter.snapshot(),
-                    bid=result.get("bid"),
-                )
-                if written:
-                    finish_task_sync(
-                        job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
-                    )
-            elif kind == "bid":
-                result = run_bid_task(
-                    payload["doc_id"],
-                    payload["profile"],
-                    payload["options"],
-                    reporter.report,
-                )
-                written = self._finish(
-                    job_id,
-                    status="succeeded",
-                    finished_at=time.time(),
-                    progress=reporter.snapshot(),
-                    bid=result.get("bid"),
-                )
-                if written:
-                    finish_task_sync(
-                        job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
-                    )
-            else:
-                result = run_parse_task(
-                    payload["source_path"], payload["options"], reporter.report
-                )
-                written = self._finish(
-                    job_id,
-                    status="succeeded",
-                    finished_at=time.time(),
-                    progress=reporter.snapshot(),
-                    **_split_result(result),
-                )
-                if written:
-                    finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
-        except Exception as exc:  # noqa: BLE001 - 任务失败需落到任务视图
-            written = self._finish(
-                job_id,
-                status="failed",
-                finished_at=time.time(),
-                error=str(exc),
-                error_type=type(exc).__name__,
+                    finish_task_sync(job_id, "failed", error=str(exc))
+
+    def _execute(
+        self, job_id: str, kind: str, payload: dict, reporter: ProgressReporter
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """按任务类型执行核心逻辑，返回任务视图字段与历史摘要（不写终态）。"""
+        if kind == "supplement":
+            result = run_supplement_task(payload["bid_id"], reporter.report)
+            return (
+                {"progress": reporter.snapshot(), "bid": result.get("bid")},
+                bid_summary(result.get("bid") or {}),
             )
-            if written:
-                finish_task_sync(job_id, "failed", error=str(exc))
+        if kind == "rewrite":
+            result = run_section_rewrite_task(
+                payload["bid_id"], payload.get("section_ids"), reporter.report
+            )
+            return (
+                {"progress": reporter.snapshot(), "bid": result.get("bid")},
+                bid_summary(result.get("bid") or {}),
+            )
+        if kind == "bid":
+            result = run_bid_task(
+                payload["doc_id"],
+                payload["profile"],
+                payload["options"],
+                reporter.report,
+            )
+            return (
+                {"progress": reporter.snapshot(), "bid": result.get("bid")},
+                bid_summary(result.get("bid") or {}),
+            )
+        result = run_parse_task(
+            payload["source_path"], payload["options"], reporter.report
+        )
+        return (
+            {"progress": reporter.snapshot(), **_split_result(result)},
+            parse_summary(result),
+        )
 
     def _finish(self, job_id: str, **fields: Any) -> bool:
         """写入终态；任务已被取消时不再覆盖，返回 False 供调用方跳过落库。"""
@@ -320,6 +317,7 @@ class LocalBackend:
         view["created_at"] = _iso(view.get("created_at"))
         view["started_at"] = _iso(view.get("started_at"))
         view["finished_at"] = _iso(view.get("finished_at"))
+        view["stage"] = latest_stage(job_id)
         return view
 
     def available(self) -> bool:

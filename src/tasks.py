@@ -16,6 +16,7 @@ from typing import Any
 from src.celery_app import celery_app
 from src.db.repository import bid_summary, finish_task_sync, parse_summary
 from src.extraction.extractor import run_extraction
+from src.observability import job_scope, stage
 from src.pipeline import run_bid_writer, run_parse
 from src.vectorstore.ingest import ingest_document
 
@@ -34,6 +35,8 @@ class ProgressReporter:
 
     def report(self, message: str) -> None:
         self._messages.append(message)
+        # 进度文案即阶段名：同一条文案重复上报会被轨迹去重（P1-9）
+        stage(message)
         now = time.monotonic()
         if now - self._last < _PROGRESS_THROTTLE:
             return
@@ -110,15 +113,18 @@ def parse_document(self, source_path: str, options: dict[str, Any]) -> dict[str,
         )
 
     reporter = ProgressReporter(sink)
-    try:
-        result = run_parse_task(source_path, options, reporter.report)
-        result["progress"] = reporter.snapshot()
-        result["started_at"] = started_at
-        finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
-        return result
-    except Exception as exc:
-        finish_task_sync(job_id, "failed", error=str(exc))
-        raise
+    with job_scope(job_id, "parse") as trace:
+        try:
+            result = run_parse_task(source_path, options, reporter.report)
+            result["progress"] = reporter.snapshot()
+            result["started_at"] = started_at
+            trace.finish("succeeded")
+            finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
+            return result
+        except Exception as exc:
+            trace.finish("failed", exc)
+            finish_task_sync(job_id, "failed", error=str(exc))
+            raise
 
 
 def run_bid_task(
@@ -151,15 +157,18 @@ def write_bid(
         )
 
     reporter = ProgressReporter(sink)
-    try:
-        result = run_bid_task(doc_id, profile, options, reporter.report)
-        result["progress"] = reporter.snapshot()
-        result["started_at"] = started_at
-        finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
-        return result
-    except Exception as exc:
-        finish_task_sync(job_id, "failed", error=str(exc))
-        raise
+    with job_scope(job_id, "bid") as trace:
+        try:
+            result = run_bid_task(doc_id, profile, options, reporter.report)
+            result["progress"] = reporter.snapshot()
+            result["started_at"] = started_at
+            trace.finish("succeeded")
+            finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
+            return result
+        except Exception as exc:
+            trace.finish("failed", exc)
+            finish_task_sync(job_id, "failed", error=str(exc))
+            raise
 
 
 def run_supplement_task(
@@ -187,15 +196,18 @@ def supplement_bid(self, bid_id: str) -> dict[str, Any]:
         )
 
     reporter = ProgressReporter(sink)
-    try:
-        result = run_supplement_task(bid_id, reporter.report)
-        result["progress"] = reporter.snapshot()
-        result["started_at"] = started_at
-        finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
-        return result
-    except Exception as exc:
-        finish_task_sync(job_id, "failed", error=str(exc))
-        raise
+    with job_scope(job_id, "supplement") as trace:
+        try:
+            result = run_supplement_task(bid_id, reporter.report)
+            result["progress"] = reporter.snapshot()
+            result["started_at"] = started_at
+            trace.finish("succeeded")
+            finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
+            return result
+        except Exception as exc:
+            trace.finish("failed", exc)
+            finish_task_sync(job_id, "failed", error=str(exc))
+            raise
 
 
 def run_section_rewrite_task(
@@ -226,12 +238,15 @@ def rewrite_section(
         )
 
     reporter = ProgressReporter(sink)
-    try:
-        result = run_section_rewrite_task(bid_id, section_ids, reporter.report)
-        result["progress"] = reporter.snapshot()
-        result["started_at"] = started_at
-        finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
-        return result
-    except Exception as exc:
-        finish_task_sync(job_id, "failed", error=str(exc))
-        raise
+    with job_scope(job_id, "rewrite") as trace:
+        try:
+            result = run_section_rewrite_task(bid_id, section_ids, reporter.report)
+            result["progress"] = reporter.snapshot()
+            result["started_at"] = started_at
+            trace.finish("succeeded")
+            finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
+            return result
+        except Exception as exc:
+            trace.finish("failed", exc)
+            finish_task_sync(job_id, "failed", error=str(exc))
+            raise

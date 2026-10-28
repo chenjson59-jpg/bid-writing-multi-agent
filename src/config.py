@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     api_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,null"
     api_token: str = ""  # 非空时 /api 需携带 X-API-Token 头或 ?token= 参数（公网部署防滥用）
     data_retention_days: int = 30  # 解析结果与标书产物的保留天数，0 表示不自动清理
+    log_dir: str = "./logs"  # 任务结构化日志目录（P1-9），每个任务一份 JSONL
 
     # ---- 任务队列（Celery + Redis）----
     task_backend: str = "celery"
@@ -101,6 +102,13 @@ class Settings(BaseSettings):
     @classmethod
     def _anchor_chroma_dir(cls, v: str) -> str:
         """相对路径锚定到仓库根，绝对路径原样保留。"""
+        p = Path(v)
+        return str(p) if p.is_absolute() else str((REPO_ROOT / p).resolve())
+
+    @field_validator("log_dir", mode="after")
+    @classmethod
+    def _anchor_log_dir(cls, v: str) -> str:
+        """日志目录同样锚定仓库根，避免从不同工作目录启动时写到别处。"""
         p = Path(v)
         return str(p) if p.is_absolute() else str((REPO_ROOT / p).resolve())
 
