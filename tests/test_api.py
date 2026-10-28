@@ -9,41 +9,8 @@ from fastapi.testclient import TestClient
 
 from api import dispatch
 from api.jobs import map_state
-from api.main import app
 from src import tasks
 from src.bid_writer.schema import BidReport
-
-
-@pytest.fixture
-def local_backend(monkeypatch, tmp_path):
-    """切到 local 后端并把产物目录重定向到临时目录。"""
-    from api import library, routes
-    from src.config import settings
-
-    monkeypatch.setattr(settings, "task_backend", "local")
-    monkeypatch.setattr(settings, "log_dir", str(tmp_path / "logs"))
-    # 测试不连真实 PostgreSQL：持久化降级为无操作，避免连接跨事件循环泄漏
-    monkeypatch.setattr(settings, "database_url", "")
-    monkeypatch.setattr(dispatch, "_backend", None)
-    files = tmp_path / "upload" / "files"
-    parsed = tmp_path / "upload" / "parsed"
-    bids = tmp_path / "upload" / "bids"
-    from src.bid_writer import supplement as supplement_module
-
-    monkeypatch.setattr(routes, "FILES_DIR", files)
-    monkeypatch.setattr(routes, "_INCOMING", files / ".incoming")
-    monkeypatch.setattr(routes, "PARSED_DIR", parsed)
-    monkeypatch.setattr(library, "PARSED_DIR", parsed)
-    monkeypatch.setattr(library, "BIDS_DIR", bids)
-    monkeypatch.setattr(routes, "BIDS_DIR", bids)
-    monkeypatch.setattr(supplement_module, "BIDS_DIR", bids)
-    return tmp_path
-
-
-@pytest.fixture
-def client(local_backend):
-    return TestClient(app)
-
 
 # ---- 状态映射（A22）----
 

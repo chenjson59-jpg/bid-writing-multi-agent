@@ -556,6 +556,13 @@ uv run pytest -k "chunk or toc"
 以及 API 任务分发、投标任务、文档库/标书历史列表与产物下载的路径校验、
 章节落盘反推与章节级编辑/重写/锁定。
 
+端到端用例 `tests/test_e2e.py` 用 fake 模型调用 + `local` 后端跑通
+「上传 → 解析 → 抽取 → 编写 → 产物下载」，不依赖真实 API、Redis 与 PostgreSQL；
+共享夹具在 `tests/conftest.py`，产物目录统一重定向到临时目录。
+
+持续集成见 `.github/workflows/ci.yml`：后端执行 `ruff check` 与 `pytest`，
+前端执行 `npm ci` 与 `npm run build`（tsc + vite）。Playwright 浏览器冒烟暂未纳入。
+
 ## 当前限制
 
 - 工程量清单、图纸等以矢量线框为主的章节，本地解析几乎取不到正文；
@@ -570,3 +577,10 @@ uv run pytest -k "chunk or toc"
   Word 仍无封面、目录与页码。
 - 投标文件生成为草稿：占位符必须补全，公司信息与报价必须人工核对；
   完整跑一遍会发起较多 LLM 调用，开发时可用 `--max-sections` 控制规模。
+
+## 声明
+
+本项目为个人学习与求职 Demo，不是任何公司的线上系统；未使用前公司代码、文档、
+客户数据或内部模板。`examples/demo/` 中的招标文件、公司名、人员与金额均为代码生成
+的虚构数据，不含真实招标文件原文。
+
