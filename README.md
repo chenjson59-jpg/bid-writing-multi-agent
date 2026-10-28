@@ -414,7 +414,7 @@ report.json             评分覆盖、章节得分、占位符、缺失资料
 # 先启动 Redis、Celery worker 与 FastAPI（见上文），再启动前端
 cd frontend
 npm install
-npm run dev        # 浏览器 http://127.0.0.1:5173（/api 由 Vite 代理到 8001）
+npm run dev        # 浏览器 http://localhost:5173（/api 由 Vite 代理到 8001）
 npm run electron   # Electron 窗口，加载开发服务器
 npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
 ```

@@ -128,7 +128,7 @@ elseif (-not (Test-Path 'frontend\node_modules')) {
 else {
     $devRunner = "npm run dev -- --port $FrontPort"
     Start-LoggedWindow 'bidding-frontend' "Set-Location '$root\frontend'; $devRunner"
-    Write-Host "[4/4] 前端已启动：http://127.0.0.1:$FrontPort" -ForegroundColor Green
+    Write-Host "[4/4] 前端已启动：http://localhost:$FrontPort" -ForegroundColor Green
 }
 
 Write-Host ''
