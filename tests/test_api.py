@@ -25,11 +25,15 @@ def local_backend(monkeypatch, tmp_path):
     files = tmp_path / "upload" / "files"
     parsed = tmp_path / "upload" / "parsed"
     bids = tmp_path / "upload" / "bids"
+    from src.bid_writer import supplement as supplement_module
+
     monkeypatch.setattr(routes, "FILES_DIR", files)
     monkeypatch.setattr(routes, "_INCOMING", files / ".incoming")
     monkeypatch.setattr(routes, "PARSED_DIR", parsed)
     monkeypatch.setattr(library, "PARSED_DIR", parsed)
     monkeypatch.setattr(library, "BIDS_DIR", bids)
+    monkeypatch.setattr(routes, "BIDS_DIR", bids)
+    monkeypatch.setattr(supplement_module, "BIDS_DIR", bids)
     return tmp_path
 
 
@@ -357,3 +361,54 @@ def test_bids_file_download(client, local_backend):
 
     resp = client.get("/api/bids/xyz/files/bid.md")
     assert resp.status_code == 422
+
+
+# ---- 补写未覆盖评分因素（P1-1）----
+
+_SUPPLEMENT_BID = "0123456789abcdef-20261022-120000"
+
+
+def _write_coverage(bids_dir, *, covered: bool) -> None:
+    bid_dir = bids_dir / _SUPPLEMENT_BID
+    bid_dir.mkdir(parents=True)
+    report = {
+        "doc_id": "0123456789abcdef",
+        "project_name": "示例项目",
+        "bidder": "测试公司",
+        "evaluation_coverage": [
+            {
+                "name": "财务状况",
+                "category": "商务",
+                "score": 5,
+                "covered": covered,
+                "section_id": "section_1" if covered else None,
+            }
+        ],
+    }
+    (bid_dir / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def test_supplement_unknown_bid(client):
+    resp = client.post(f"/api/bids/{_SUPPLEMENT_BID}/supplement")
+    assert resp.status_code == 404
+
+
+def test_supplement_fully_covered(client, local_backend):
+    _write_coverage(local_backend / "upload" / "bids", covered=True)
+    resp = client.post(f"/api/bids/{_SUPPLEMENT_BID}/supplement")
+    assert resp.status_code == 409
+    assert "已覆盖全部评分因素" in resp.json()["detail"]
+
+
+def test_supplement_submits_job(client, local_backend, monkeypatch):
+    _write_coverage(local_backend / "upload" / "bids", covered=False)
+    monkeypatch.setattr(dispatch, "submit_supplement", lambda bid_id, doc_id: "job-supp")
+    resp = client.post(f"/api/bids/{_SUPPLEMENT_BID}/supplement")
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["job_id"] == "job-supp"
+    assert body["kind"] == "supplement"
+    assert body["doc_id"] == "0123456789abcdef"

@@ -7,6 +7,7 @@ import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import Path as PathParam
 
 from api import dispatch
 from api.schemas import (
@@ -27,7 +28,7 @@ from src.db.repository import (
     save_profile,
     update_profile,
 )
-from src.pipeline import FILES_DIR, PARSED_DIR, _safe_filename
+from src.pipeline import BIDS_DIR, FILES_DIR, PARSED_DIR, _safe_filename
 
 router = APIRouter(prefix="/api")
 
@@ -128,6 +129,38 @@ def create_bid(body: BidCreate) -> BidAccepted:
         job_id=job_id,
         doc_id=body.doc_id,
         kind="bid",
+        status="pending",
+        job_url=f"/api/jobs/{job_id}",
+    )
+
+
+@router.post("/bids/{bid_id}/supplement", response_model=BidAccepted, status_code=202)
+def supplement_bid(
+    bid_id: Annotated[str, PathParam(pattern=r"^[0-9a-f]{16}-\d{8}-\d{6}$")],
+) -> BidAccepted:
+    """为未覆盖评分因素补写章节，生成新产物（不覆盖原产物）。"""
+    from src.bid_writer.supplement import supplement_plan
+
+    if not (BIDS_DIR / bid_id / "report.json").is_file():
+        raise HTTPException(404, "产物不存在")
+    try:
+        factors = supplement_plan(bid_id)
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not factors:
+        raise HTTPException(409, "该产物已覆盖全部评分因素")
+
+    if not dispatch.queue_available():
+        raise HTTPException(503, "任务队列不可用")
+    if dispatch.queue_depth() >= settings.api_max_pending_jobs:
+        raise HTTPException(429, "排队任务达到上限")
+
+    doc_id = bid_id.split("-")[0]
+    job_id = dispatch.submit_supplement(bid_id, doc_id)
+    return BidAccepted(
+        job_id=job_id,
+        doc_id=doc_id,
+        kind="supplement",
         status="pending",
         job_url=f"/api/jobs/{job_id}",
     )

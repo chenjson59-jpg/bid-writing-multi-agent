@@ -224,6 +224,10 @@ class BidReport:
     placeholders: list[str] = field(default_factory=list)
     missing_profile_fields: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # 本次任务的模型用量（P1-5），见 `bid_writer.usage.UsageMeter.summary`
+    llm_usage: dict[str, Any] = field(default_factory=dict)
+    # 补写产物所基于的原产物 bid_id（P1-1），正常生成为空
+    supplement_of: str = ""
     # 产物路径（落盘时由编排层回填）
     output_dir: str = ""
     markdown_path: str = ""
@@ -260,6 +264,8 @@ class BidReport:
             "missing_profile_fields": self.missing_profile_fields,
             "sections": self.sections,
             "warnings": self.warnings,
+            "llm_usage": self.llm_usage,
+            "supplement_of": self.supplement_of,
             "output_dir": self.output_dir,
             "markdown_path": self.markdown_path,
             "docx_path": self.docx_path,

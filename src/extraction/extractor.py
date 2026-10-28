@@ -508,8 +508,15 @@ class DeepSeekModelCaller:
 
         response = self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
+        usage = getattr(response, "usage", None)
         return {
             "content": choice.message.content,
             "finish_reason": choice.finish_reason,
             "json_mode_used": json_mode,
+            "model": self._model,
+            "usage": {
+                "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+                "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            },
         }

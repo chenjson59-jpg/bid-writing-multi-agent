@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     bid_writer_top_k: int = 6
     bid_writer_max_concurrency: int = 3
     bid_writer_target_words: int = 1200
+    # 模型单价（元 / 千 token），留 0 表示只统计 token 不估算金额
+    bid_writer_price_input_per_1k: float = 0.0
+    bid_writer_price_output_per_1k: float = 0.0
 
     # ---- 存储（PostgreSQL + Redis）----
     database_url: str = "postgresql+asyncpg://postgres:123456@localhost:5432/bidding"

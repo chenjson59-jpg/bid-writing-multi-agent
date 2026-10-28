@@ -33,6 +33,19 @@ export interface SectionResult {
   scoring_factors: string[]
 }
 
+export interface LlmUsage {
+  models: string[]
+  calls: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  duration_ms: number
+  price_input_per_1k: number
+  price_output_per_1k: number
+  estimated_cost: number
+  cost_estimated: boolean
+}
+
 export interface BidSummary {
   doc_id: string
   project_name: string
@@ -48,6 +61,8 @@ export interface BidSummary {
   missing_profile_fields: string[]
   sections: SectionResult[]
   warnings: string[]
+  llm_usage?: LlmUsage
+  supplement_of?: string
   output_dir: string
   markdown_path: string
   docx_path: string

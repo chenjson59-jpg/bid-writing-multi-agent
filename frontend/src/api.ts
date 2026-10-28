@@ -171,6 +171,11 @@ export function listBids(): Promise<BidHistoryItem[]> {
   return request('/api/bids')
 }
 
+// 补写未覆盖评分因素：异步任务，完成后生成新产物（原产物保留）
+export function createSupplement(bidId: string): Promise<ParseAccepted> {
+  return request(`/api/bids/${bidId}/supplement`, { method: 'POST' })
+}
+
 // ---- 投标人资料库：一次录入、多次复用 ----
 
 export function listProfiles(): Promise<BidderProfileItem[]> {

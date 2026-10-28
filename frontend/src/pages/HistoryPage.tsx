@@ -66,7 +66,7 @@ export function HistoryPage() {
                 </button>
                 {expanded && (
                   <div className="mt-4">
-                    <ResultView bid={s} bidId={item.bid_id} />
+                    <ResultView bid={s} bidId={item.bid_id} onSupplemented={load} />
                   </div>
                 )}
               </Card>

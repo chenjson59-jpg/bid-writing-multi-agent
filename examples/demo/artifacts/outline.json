@@ -1,0 +1,92 @@
+[
+  {
+    "id": "section_1",
+    "title": "施工组织设计",
+    "order": 1,
+    "strategy": "generate",
+    "target_words": 1800,
+    "scoring_factors": ["施工组织设计"],
+    "requirements": "施工方案、进度计划、质量保证、安全文明施工措施；须包含扩建不停水专项措施。",
+    "retrieval_query": "施工组织设计 不停水切换 絮凝沉淀池 V 型滤池 满水试验"
+  },
+  {
+    "id": "section_2",
+    "title": "项目管理机构",
+    "order": 2,
+    "strategy": "generate",
+    "target_words": 900,
+    "scoring_factors": ["项目管理机构"],
+    "requirements": "项目经理、技术负责人及主要管理人员的资格、业绩与社保情况。",
+    "retrieval_query": "项目管理机构 项目经理 一级建造师 技术负责人 主要管理人员"
+  },
+  {
+    "id": "section_3",
+    "title": "类似项目业绩",
+    "order": 3,
+    "strategy": "generate",
+    "target_words": 800,
+    "scoring_factors": ["类似项目业绩"],
+    "requirements": "近三年日供水规模 3 万立方米/日以上供水工程业绩，含合同与验收证明。",
+    "retrieval_query": "类似项目业绩 供水工程 扩建 验收证明"
+  },
+  {
+    "id": "section_4",
+    "title": "投标函",
+    "order": 4,
+    "strategy": "fill_template",
+    "target_words": 300,
+    "scoring_factors": [],
+    "requirements": "按第六章 6.4 格式填写投标总报价、工期与质量标准。",
+    "retrieval_query": "投标函 投标总报价 工期 质量标准"
+  },
+  {
+    "id": "section_5",
+    "title": "法定代表人身份证明",
+    "order": 5,
+    "strategy": "fill_template",
+    "target_words": 200,
+    "scoring_factors": [],
+    "requirements": "载明法定代表人姓名、职务、身份证号，并附身份证复印件。",
+    "retrieval_query": "法定代表人身份证明 姓名 职务 身份证"
+  },
+  {
+    "id": "section_6",
+    "title": "授权委托书",
+    "order": 6,
+    "strategy": "fill_template",
+    "target_words": 250,
+    "scoring_factors": [],
+    "requirements": "按第六章 6.5 格式出具，明确代理人权限与期限。",
+    "retrieval_query": "授权委托书 代理人 权限 期限"
+  },
+  {
+    "id": "section_7",
+    "title": "投标保证金",
+    "order": 7,
+    "strategy": "fill_template",
+    "target_words": 200,
+    "scoring_factors": [],
+    "requirements": "人民币 60 万元，银行保函或转账，附证明材料。",
+    "retrieval_query": "投标保证金 60 万元 银行保函 转账"
+  },
+  {
+    "id": "section_8",
+    "title": "承诺书",
+    "order": 8,
+    "strategy": "fill_template",
+    "target_words": 250,
+    "scoring_factors": [],
+    "requirements": "质量、安全、工期与廉洁投标承诺，按第六章 6.6 格式出具。",
+    "retrieval_query": "承诺书 质量 安全 工期 廉洁投标"
+  },
+  {
+    "id": "section_9",
+    "title": "投标报价",
+    "order": 9,
+    "strategy": "placeholder",
+    "target_words": 0,
+    "scoring_factors": ["投标报价"],
+    "requirements": "报价由投标人根据工程量清单自主组价，系统只保留占位。",
+    "retrieval_query": "投标报价 评标基准价 工程量清单"
+  }
+]

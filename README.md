@@ -113,6 +113,7 @@ uv run python -m api
 |---|---|---|
 | POST | `/api/parse` | 上传 PDF，创建解析任务，立即返回 **202** |
 | POST | `/api/bids` | 基于已有抽取结果创建投标文件编写任务，立即返回 **202** |
+| POST | `/api/bids/{bid_id}/supplement` | 补写未覆盖的评分因素，生成新产物（原产物保留），立即返回 **202** |
 | GET | `/api/jobs/{job_id}` | 查询任务状态、进度与结果（parse / bid 共用） |
 | GET | `/api/documents` | 已解析文档列表（读取 `upload/parsed`） |
 | GET | `/api/bids` | 历史投标产物列表（读取 `upload/bids/*/report.json`） |
@@ -138,7 +139,7 @@ curl "http://127.0.0.1:8001/api/jobs/<job_id>"
 ```
 
 任务状态为 `pending` → `running` → `succeeded` / `failed`；`progress` 会记录
-`[1/3] 解析文档` 这类阶段信息。`kind` 区分任务类型（`parse` / `bid`）。
+`[1/3] 解析文档` 这类阶段信息。`kind` 区分任务类型（`parse` / `bid` / `supplement`）。
 Celery 后端的任务状态存放在 Redis，重启 API 不丢失；`local` 后端的状态仅在内存中。
 
 ### 投标文件编写任务
@@ -172,6 +173,29 @@ curl -X POST "http://127.0.0.1:8001/api/bids" \
 未覆盖评分因素、占位符数量、缺失资料、各章节修订前后得分，以及 `bid.md`、
 `bid.docx`、`report.json` 的路径。完整报告仍在 `report.json` 中。
 
+摘要还包含两类计量字段：
+
+- `llm_usage`：本次运行的模型调用次数、输入 / 输出 token、耗时、单价与
+  `estimated_cost`；`cost_estimated=false` 表示未配置单价（`.env` 中的
+  `BID_WRITER_PRICE_INPUT_PER_1K` / `BID_WRITER_PRICE_OUTPUT_PER_1K`）。
+- `supplement_of`：补写产物会记录原 `bid_id`，便于两份 `report.json` 对比覆盖率。
+
+#### 补写未覆盖评分因素
+
+```bash
+curl -X POST "http://127.0.0.1:8001/api/bids/<bid_id>/supplement"
+```
+
+服务端读取原产物的 `outline.json` 与 `bid.md`，为 `uncovered_factors` 中每一项追加
+「补充：<因素名>」章节，只生成新增章节后写出一份新产物（新 `bid_id`，原产物不动）。
+全部因素已覆盖时返回 **409**，产物不存在返回 **404**。
+
+- 补写默认使用 `generate` 策略，避免标题缺少关键词被降级为占位符。
+- 产物结构必须与大纲章节数一致（数量不符时提示重新生成后再补写）。
+- 新增任务后需**重启 worker** 才会注册 `bidding.supplement_bid`。
+
+编写任务通用约束：
+
 - profile 非法、参数越界或 `doc_id` 格式错误 → **422**。
 - 队列深度达到 `API_MAX_PENDING_JOBS` → **429**；Redis 不可用 → **503**。
 - 输出目录由服务端生成（`upload/bids/<doc_id>-<时间>/`），不接受客户端指定。
@@ -184,7 +208,7 @@ curl -X POST "http://127.0.0.1:8001/api/bids" \
 
 `TASK_BACKEND=celery`（默认）时，`POST /api/parse` 与 `POST /api/bids` 只负责
 校验与入队，实际执行由独立 worker 完成；任务状态与进度存放在 Redis。队列中注册了
-`bidding.parse_document` 与 `bidding.write_bid` 两个任务。
+`bidding.parse_document`、`bidding.write_bid` 与 `bidding.supplement_bid` 三个任务。
 
 ```bash
 # 1. 确认 Redis 在 127.0.0.1:6379 运行
@@ -225,6 +249,18 @@ powershell -ExecutionPolicy Bypass -File scripts\check.ps1
 
 `demo.ps1` 为 worker、API、前端各开一个窗口，日志留在窗口内；端口已被占用时跳过并提示。
 `check.ps1` 任一组件异常时打印对应的修复命令，并以退出码 1 结束。
+
+### 演示数据集（无需付费 API）
+
+`examples/demo/` 提供一套**合成、可公开**的招标数据（10 页 / 6 章 PDF + 投标人资料 + 预置产物）：
+
+```powershell
+uv run python scripts/install_demo_data.py
+```
+
+安装后文档库、标书历史、资料库都有可演示的数据，`report.json` 由 `build_report()`
+依据预置章节正文真实计算，覆盖率与正文一致。详见 `examples/demo/README.md`
+（含数据来源声明与 3 分钟演示流程）。
 
 ## 投标文件编写（多 Agent）
 

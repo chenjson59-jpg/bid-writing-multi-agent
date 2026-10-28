@@ -26,7 +26,12 @@ from src.db.repository import (
     save_profile_sync,
     upsert_task_sync,
 )
-from src.tasks import ProgressReporter, run_bid_task, run_parse_task
+from src.tasks import (
+    ProgressReporter,
+    run_bid_task,
+    run_parse_task,
+    run_supplement_task,
+)
 
 _JOB_KEY = "bidding:job:{job_id}"
 _QUEUE_NAME = "bidding"
@@ -72,7 +77,7 @@ class CeleryBackend:
     def submit(
         self, job_id: str, kind: str, payload: dict, meta: dict
     ) -> None:
-        from src.tasks import parse_document, write_bid
+        from src.tasks import parse_document, supplement_bid, write_bid
 
         # 先写任务标记（供 pending 阶段查询元数据），再入队
         self._r().set(
@@ -80,7 +85,9 @@ class CeleryBackend:
             json.dumps(meta),
             ex=settings.celery_result_expires,
         )
-        if kind == "bid":
+        if kind == "supplement":
+            supplement_bid.apply_async(args=(payload["bid_id"],), task_id=job_id)
+        elif kind == "bid":
             write_bid.apply_async(
                 args=(payload["doc_id"], payload["profile"], payload["options"]),
                 task_id=job_id,
@@ -120,7 +127,7 @@ class CeleryBackend:
             view["progress"] = info.get("progress", [])
             view["started_at"] = _iso(info.get("started_at"))
         elif status == "succeeded" and isinstance(result.result, dict):
-            if view.get("kind") == "bid":
+            if view.get("kind") in ("bid", "supplement"):
                 view["bid"] = result.result.get("bid")
             else:
                 view.update(_split_result(result.result))
@@ -188,7 +195,19 @@ class LocalBackend:
 
         reporter = ProgressReporter(sink)
         try:
-            if kind == "bid":
+            if kind == "supplement":
+                result = run_supplement_task(payload["bid_id"], reporter.report)
+                with self._lock:
+                    self._jobs[job_id].update(
+                        status="succeeded",
+                        finished_at=time.time(),
+                        progress=reporter.snapshot(),
+                        bid=result.get("bid"),
+                    )
+                finish_task_sync(
+                    job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                )
+            elif kind == "bid":
                 result = run_bid_task(
                     payload["doc_id"],
                     payload["profile"],
@@ -316,6 +335,29 @@ def submit_bid(
     )
     payload = {"doc_id": doc_id, "profile": profile, "options": options}
     _get_backend().submit(job_id, "bid", payload, meta)
+    return job_id
+
+
+def submit_supplement(bid_id: str, doc_id: str) -> str:
+    """提交「补写未覆盖评分因素」任务，返回 job_id。"""
+    job_id = uuid.uuid4().hex
+    meta = {
+        "job_id": job_id,
+        "kind": "supplement",
+        "source_name": bid_id,
+        "doc_id": doc_id,
+        "options": {},
+        "created_at": time.time(),
+    }
+    upsert_task_sync(
+        job_id=job_id,
+        kind="supplement",
+        doc_id=doc_id,
+        source_name=bid_id,
+        status="pending",
+        options={},
+    )
+    _get_backend().submit(job_id, "supplement", {"bid_id": bid_id}, meta)
     return job_id
 
 

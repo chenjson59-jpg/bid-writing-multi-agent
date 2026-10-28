@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { bidFileUrl, describeError } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import { bidFileUrl, createSupplement, describeError, getJob } from '../api'
 import { getDesktop } from '../desktop'
 import type { BidSummary } from '../types'
 import { Badge, Banner, Button, Card, Modal, Spinner } from '../ui'
@@ -25,14 +25,74 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function ResultView({ bid, bidId }: { bid: BidSummary; bidId?: string }) {
+export function ResultView({
+  bid,
+  bidId,
+  onSupplemented,
+}: {
+  bid: BidSummary
+  bidId?: string
+  onSupplemented?: () => void
+}) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewText, setPreviewText] = useState('')
   const [loading, setLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
-
+  const [supplementState, setSupplementState] = useState<'idle' | 'running' | 'done' | 'failed'>(
+    'idle',
+  )
+  const [supplementMsg, setSupplementMsg] = useState<string | null>(null)
+  const timerRef = useRef<number | null>(null)
   const id = bidId ?? bidIdFromOutputDir(bid.output_dir) ?? ''
   const desktop = getDesktop()
+
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current)
+    },
+    [],
+  )
+
+  function stopPolling() {
+    if (timerRef.current !== null) window.clearInterval(timerRef.current)
+    timerRef.current = null
+  }
+
+  function pollSupplement(jobId: string) {
+    timerRef.current = window.setInterval(async () => {
+      try {
+        const job = await getJob(jobId)
+        if (job.status === 'succeeded') {
+          stopPolling()
+          const newId = bidIdFromOutputDir(job.bid?.output_dir ?? '') ?? ''
+          setSupplementState('done')
+          setSupplementMsg(`补写完成，新产物 ${newId} 已生成，可在「标书历史」对比覆盖率`)
+          onSupplemented?.()
+        } else if (job.status === 'failed') {
+          stopPolling()
+          setSupplementState('failed')
+          setSupplementMsg(job.error ?? '补写失败')
+        }
+      } catch (e) {
+        stopPolling()
+        setSupplementState('failed')
+        setSupplementMsg(describeError(e))
+      }
+    }, 2000)
+  }
+
+  async function supplement() {
+    if (!id) return
+    setSupplementState('running')
+    setSupplementMsg('已提交补写任务，正在等待新章节生成…')
+    try {
+      const accepted = await createSupplement(id)
+      pollSupplement(accepted.job_id)
+    } catch (e) {
+      setSupplementState('failed')
+      setSupplementMsg(describeError(e))
+    }
+  }
 
   async function openPreview() {
     setLoading(true)
@@ -74,6 +134,9 @@ export function ResultView({ bid, bidId }: { bid: BidSummary; bidId?: string }) 
             <p className="mt-1 text-sm text-slate-400">
               投标人：{bid.bidder || '未填写'} · {bid.doc_id}
             </p>
+            {bid.supplement_of && (
+              <p className="mt-1 text-xs text-sky-400">本产物为补写版，原产物：{bid.supplement_of}</p>
+            )}
           </div>
           {bid.output_dir && (
             <p className="max-w-xs truncate text-xs text-slate-500" title={bid.output_dir}>
@@ -109,6 +172,49 @@ export function ResultView({ bid, bidId }: { bid: BidSummary; bidId?: string }) 
               </p>
             ))}
           </div>
+        </Card>
+      )}
+
+      {bid.llm_usage && bid.llm_usage.calls > 0 && (
+        <Card title="本次模型用量">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <Metric label="调用次数" value={String(bid.llm_usage.calls)} />
+            <Metric label="总 Token" value={String(bid.llm_usage.total_tokens)} />
+            <Metric label="耗时" value={`${(bid.llm_usage.duration_ms / 1000).toFixed(1)} s`} />
+            <Metric
+              label="估算成本"
+              value={
+                bid.llm_usage.cost_estimated
+                  ? `¥${bid.llm_usage.estimated_cost.toFixed(4)}`
+                  : '未配置单价'
+              }
+            />
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            模型：{bid.llm_usage.models.join('、') || '未知'} · 输入 {bid.llm_usage.prompt_tokens} /
+            输出 {bid.llm_usage.completion_tokens} token
+            {!bid.llm_usage.cost_estimated &&
+              '（可在 .env 配置 BID_WRITER_PRICE_INPUT_PER_1K / BID_WRITER_PRICE_OUTPUT_PER_1K 后重跑）'}
+          </p>
+        </Card>
+      )}
+
+      {bid.uncovered_factors.length > 0 && (
+        <Card title="补写未覆盖因素">
+          <p className="text-sm text-slate-400">
+            针对未覆盖的 {bid.uncovered_factors.length} 项评分因素，追加章节并生成新产物（原产物保留，便于对比）。
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button onClick={supplement} disabled={!id || supplementState === 'running'}>
+              {supplementState === 'running' ? <Spinner /> : '补写未覆盖因素'}
+            </Button>
+            {supplementState === 'done' && <Badge tone="success">已生成补写版</Badge>}
+          </div>
+          {supplementMsg && (
+            <div className="mt-3">
+              <Banner kind={supplementState === 'failed' ? 'error' : 'info'}>{supplementMsg}</Banner>
+            </div>
+          )}
         </Card>
       )}
 

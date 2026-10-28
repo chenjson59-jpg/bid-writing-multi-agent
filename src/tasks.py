@@ -160,3 +160,39 @@ def write_bid(
     except Exception as exc:
         finish_task_sync(job_id, "failed", error=str(exc))
         raise
+
+
+def run_supplement_task(
+    bid_id: str,
+    report: Callable[[str], None],
+) -> dict[str, Any]:
+    """未覆盖评分因素补写的核心逻辑（P1-1）。"""
+    from src.bid_writer.supplement import run_supplement
+
+    report("补写未覆盖评分因素")
+    result = run_supplement(bid_id)
+    return {"bid": result.summary()}
+
+
+@celery_app.task(bind=True, name="bidding.supplement_bid")
+def supplement_bid(self, bid_id: str) -> dict[str, Any]:
+    """Celery 入口：在已有产物基础上补写未覆盖评分因素。"""
+    started_at = time.time()
+    job_id = self.request.id
+
+    def sink(messages: list[str]) -> None:
+        self.update_state(
+            state="PROGRESS",
+            meta={"progress": messages, "started_at": started_at},
+        )
+
+    reporter = ProgressReporter(sink)
+    try:
+        result = run_supplement_task(bid_id, reporter.report)
+        result["progress"] = reporter.snapshot()
+        result["started_at"] = started_at
+        finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
+        return result
+    except Exception as exc:
+        finish_task_sync(job_id, "failed", error=str(exc))
+        raise

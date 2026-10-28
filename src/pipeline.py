@@ -320,6 +320,7 @@ def run_bid_writer(
     from src.bid_writer.docx_export import markdown_to_docx
     from src.bid_writer.graph import run_write_pipeline
     from src.bid_writer.schema import BidderProfile, WriteOptions
+    from src.bid_writer.usage import default_meter
     from src.vectorstore.ingest import collection_name
     from src.vectorstore.retrieval import ChromaRetriever
 
@@ -327,7 +328,8 @@ def run_bid_writer(
     write_options = WriteOptions.from_dict(options)
     tender = load_extraction(doc_id)
 
-    caller = caller or default_caller()
+    meter = default_meter()
+    caller = meter.wrap(caller or default_caller())
     plans = plan_sections(
         tender,
         profile_obj,
@@ -380,6 +382,7 @@ def run_bid_writer(
         except Exception as exc:  # noqa: BLE001 - Word 导出失败不阻断 Markdown 与报告
             report.warnings.append(f"Word 导出失败：{exc}")
 
+    report.llm_usage = meter.summary()
     report.output_dir = str(output_dir)
     report.markdown_path = str(markdown_path)
     report.outline_path = str(outline_path)
