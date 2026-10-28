@@ -329,3 +329,32 @@ def queue_available() -> bool:
 
 def queue_depth() -> int:
     return _get_backend().queue_depth()
+
+
+_WORKER_CACHE: tuple[float, bool | None] = (0.0, None)
+_WORKER_TTL = 5.0
+
+
+def worker_status() -> bool | None:
+    """消费者是否在线：Celery 用 control.ping 探测（5 秒缓存），local 后端恒为 True。
+
+    探测本身走 broker，Redis 不可用时会抛异常，此时按「无 worker」处理而不是让
+    健康检查 500——演示时最需要知道的是「谁没起来」。
+    """
+    global _WORKER_CACHE
+
+    if settings.task_backend != "celery":
+        return True
+
+    now = time.monotonic()
+    cached_at, cached = _WORKER_CACHE
+    if now - cached_at < _WORKER_TTL:
+        return cached
+
+    try:
+        replies = celery_app.control.ping(timeout=0.5)
+        value: bool | None = bool(replies)
+    except Exception:  # noqa: BLE001 - broker 不可用即视为无 worker
+        value = False
+    _WORKER_CACHE = (now, value)
+    return value

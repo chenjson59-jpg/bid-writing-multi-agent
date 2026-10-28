@@ -88,8 +88,8 @@ chroma_db/                   # 本地向量库
 - **MinerU 单文件限 200 页**，超过时自动均衡分片；合并时用 `content_list.json`
   的 `page_idx` 加分片页偏移还原原始页码。
 - **嵌入走火山方舟**。用 `openai` SDK 直连火山方舟 OpenAI 兼容端点
-  （`EMBEDDING_BASE_URL`），模型 `doubao-embedding-large`，显式传
-  `encoding_format="float"` 返回浮点向量。
+  （`EMBEDDING_BASE_URL`），默认模型 `doubao-embedding-vision`（2048 维，可换
+  `doubao-embedding-large`），显式传 `encoding_format="float"` 返回浮点向量。
 - **入库幂等**：先 upsert 新块，再删除同一 `doc_id` 下不再存在的旧块；
   内容未变的块按 `content_sha256` 跳过重新嵌入。
 - **DeepSeek 是推理模型**：`deepseek-flash` 默认开启思考，思维链与正文共享
@@ -118,7 +118,12 @@ uv run python -m api
 | GET | `/api/bids` | 历史投标产物列表（读取 `upload/bids/*/report.json`） |
 | GET | `/api/documents/{doc_id}/markdown` | 预览解析后的 `content.md` |
 | GET | `/api/bids/{bid_id}/files/{name}` | 预览/下载 `bid.md`、`bid.docx`、`report.json`、`outline.json`；`download=1` 触发附件下载 |
-| GET | `/api/health` | 健康检查 |
+| GET | `/api/tasks` | 任务历史（解析 + 编写，读数据库；库不可用返回空） |
+| GET | `/api/profiles` | 投标人资料列表（读数据库） |
+| POST | `/api/profiles` | 新建资料，公司名已存在时覆盖最近一条 |
+| PUT | `/api/profiles/{id}` | 覆盖指定资料 |
+| DELETE | `/api/profiles/{id}` | 删除资料；数据库不可用返回 **503** |
+| GET | `/api/health` | 健康检查，返回 `task_backend` / `broker_ok` / `worker_ok` / `queue_depth` |
 
 `/api/parse` 查询参数：`parser=auto|cloud|local`、`force`、`extract`、`ingest`
 （后两者为 `true` 时继续抽取 / 入库）。
@@ -200,7 +205,26 @@ uv run uvicorn api.main:app --host 127.0.0.1 --port 8001
 - API 与 worker 必须能访问同一份 `upload/files/`。
 - worker 未启动时 POST 仍返回 202，任务保持 `pending`；worker 启动后自动执行。
 - Redis 不可用时 POST / GET 返回 503，API 本身不受影响。
-- `GET /api/health` 返回 `task_backend` 与 `broker_ok`，可用于判断队列是否就绪。
+- `GET /api/health` 返回 `task_backend`、`broker_ok`（Redis 可连通）、`worker_ok`
+  （Celery worker 在线探测，5 秒缓存）与 `queue_depth`，前端顶栏据此显示三个状态点。
+
+### 一键启动与自检（Windows）
+
+演示时不必手工开四个终端，两个脚本覆盖启动与检查：
+
+```powershell
+# Redis → worker → API → 前端，最后自动自检
+powershell -ExecutionPolicy Bypass -File scripts\demo.ps1
+
+# 无 Redis 也能演示（进程内线程池，任务状态重启即丢）
+powershell -ExecutionPolicy Bypass -File scripts\demo.ps1 -Backend local
+
+# 只做自检：接口 / 队列 / worker / 文档库 / 资料库
+powershell -ExecutionPolicy Bypass -File scripts\check.ps1
+```
+
+`demo.ps1` 为 worker、API、前端各开一个窗口，日志留在窗口内；端口已被占用时跳过并提示。
+`check.ps1` 任一组件异常时打印对应的修复命令，并以退出码 1 结束。
 
 ## 投标文件编写（多 Agent）
 
@@ -225,11 +249,12 @@ uv run python -m src.cli write <doc_id> \
 
 ```
 outline.json            章节计划
-sections/*.md           每个章节的正文
-bid.md                  合并后的完整投标文件
+bid.md                  合并后的完整投标文件（章节正文只在这里）
 bid.docx                Word 导出
 report.json             评分覆盖、章节得分、占位符、缺失资料
 ```
+
+章节正文目前**只存在于合并后的 `bid.md`**，不单独落盘；章节级编辑与单章导出尚未实现。
 
 **投标人资料**：`--profile` 指向 JSON（结构见 `examples/bidder_profile.example.json`）。
 资料未提供的公司名称、人员、证书、业绩、财务等信息不会编造，统一生成
@@ -397,7 +422,7 @@ uv run pytest -k "chunk or toc"
 ```
 
 测试覆盖：书签树与归页、分片、本地解析、MinerU 结果合并、schema 容错、JSON 提取、
-提示词路由、抽取缓存、章节分块、智谱嵌入包装、Chroma 幂等入库、CLI 退出码与编排顺序，
+提示词路由、抽取缓存、章节分块、火山方舟嵌入包装、Chroma 幂等入库、CLI 退出码与编排顺序，
 以及 API 任务分发、投标任务、文档库/标书历史列表与产物下载的路径校验。
 
 ## 当前限制
@@ -407,5 +432,8 @@ uv run pytest -k "chunk or toc"
 - 目录页会被识别并跳过，不参与分块。
 - 无书签 PDF 仍可解析与入库，但只能按页分块，无法恢复章节层级。
 - 前端联调已完成；数据库持久化为可选增强（投标人资料与任务历史，`DATABASE_URL` 留空则降级）。
+- 只有单一共享 `API_TOKEN`，无登录、无多用户与权限隔离；下载接口支持 `?token=`，会进访问日志。
+- 任务不可取消，只能等待结束；失败任务可在编写页沿用原参数重试。
+- 章节不支持单独重写、编辑或锁定，重跑会整篇覆盖；Word 无封面、目录与页码。
 - 投标文件生成为草稿：占位符必须补全，公司信息与报价必须人工核对；
   完整跑一遍会发起较多 LLM 调用，开发时可用 `--max-sections` 控制规模。

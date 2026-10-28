@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listBids } from '../api'
+import { describeError, listBids } from '../api'
 import type { BidHistoryItem } from '../types'
 import { Banner, Card, EmptyState, Spinner } from '../ui'
 import { ResultView } from './ResultView'
@@ -16,7 +16,7 @@ export function HistoryPage() {
     try {
       setItems(await listBids())
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
+      setError(describeError(e))
     } finally {
       setLoading(false)
     }

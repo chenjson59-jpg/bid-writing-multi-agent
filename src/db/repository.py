@@ -117,16 +117,63 @@ async def finish_task(
         logger.warning("任务历史更新失败: %s", exc)
 
 
-async def save_profile(company_name: str, data: dict[str, Any]) -> None:
-    """保存一份投标人资料。"""
+async def save_profile(company_name: str, data: dict[str, Any]) -> int | None:
+    """保存一份投标人资料：同公司名覆盖最近一条，避免每次编写都新增重复记录。
+
+    返回资料 id；数据库不可用时返回 None（调用方据此给出 503 而不是伪装成功）。
+    """
     try:
         async with get_session_factory()() as session:
-            session.add(
-                BidderProfile(company_name=company_name, data=data, created_at=_now())
+            existing = await session.execute(
+                select(BidderProfile)
+                .where(BidderProfile.company_name == company_name)
+                .order_by(BidderProfile.id.desc())
+                .limit(1)
             )
+            profile = existing.scalars().first()
+            if profile is None:
+                profile = BidderProfile(
+                    company_name=company_name, data=data, created_at=_now()
+                )
+                session.add(profile)
+            else:
+                profile.data = data
             await session.commit()
+            return profile.id
     except Exception as exc:  # noqa: BLE001 - 持久化失败不阻断主流程
         logger.warning("投标人资料保存失败: %s", exc)
+        return None
+
+
+async def update_profile(profile_id: int, company_name: str, data: dict[str, Any]) -> bool | None:
+    """按 id 覆盖资料。True 已更新 / False 不存在 / None 数据库不可用。"""
+    try:
+        async with get_session_factory()() as session:
+            profile = await session.get(BidderProfile, profile_id)
+            if profile is None:
+                return False
+            profile.company_name = company_name
+            profile.data = data
+            await session.commit()
+            return True
+    except Exception as exc:  # noqa: BLE001 - 持久化失败不阻断主流程
+        logger.warning("投标人资料更新失败: %s", exc)
+        return None
+
+
+async def delete_profile(profile_id: int) -> bool | None:
+    """按 id 删除资料。True 已删除 / False 不存在 / None 数据库不可用。"""
+    try:
+        async with get_session_factory()() as session:
+            profile = await session.get(BidderProfile, profile_id)
+            if profile is None:
+                return False
+            await session.delete(profile)
+            await session.commit()
+            return True
+    except Exception as exc:  # noqa: BLE001 - 持久化失败不阻断主流程
+        logger.warning("投标人资料删除失败: %s", exc)
+        return None
 
 
 def _task_to_dict(task: TaskHistory) -> dict[str, Any]:

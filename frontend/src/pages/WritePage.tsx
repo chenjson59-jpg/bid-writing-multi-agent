@@ -1,7 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createBid, listDocuments } from '../api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  createBid,
+  createProfile,
+  deleteProfile,
+  describeError,
+  listDocuments,
+  listProfiles,
+  updateProfile,
+} from '../api'
 import { usePolling } from '../hooks'
-import type { BidCreateBody, BidderProfile, DocumentSummary } from '../types'
+import type {
+  BidCreateBody,
+  BidderProfile,
+  BidderProfileItem,
+  DocumentSummary,
+} from '../types'
 import { Banner, Button, Card, EmptyState, Field, Modal } from '../ui'
 import { ResultView } from './ResultView'
 
@@ -30,11 +43,30 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [profiles, setProfiles] = useState<BidderProfileItem[]>([])
+  const [profileId, setProfileId] = useState<number | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [lastBody, setLastBody] = useState<BidCreateBody | null>(null)
+
+  const refreshProfiles = useCallback(async () => {
+    try {
+      setProfiles(await listProfiles())
+    } catch {
+      setProfiles([])
+    }
+  }, [])
 
   const { job } = usePolling(jobId, (doneJob) => {
     onRunningChange(false)
-    if (doneJob.status === 'succeeded') onWritten()
+    if (doneJob.status === 'succeeded') {
+      onWritten()
+      refreshProfiles()
+    }
   })
+
+  useEffect(() => {
+    refreshProfiles()
+  }, [refreshProfiles])
 
   useEffect(() => {
     listDocuments()
@@ -96,25 +128,87 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     setConfirmOpen(true)
   }
 
-  async function submit() {
+  // 资料库 → 表单：简单字段进输入框，复杂结构（业绩/人员/财务）回填到高级 JSON
+  function applyProfile(item: BidderProfileItem) {
+    const d = item.data ?? {}
+    setCompanyName(d.company_name || item.company_name)
+    setLegalRep(d.legal_representative || '')
+    setRegisteredCapital(d.registered_capital || '')
+    setEstablishedDate(d.established_date || '')
+    setAddress(d.address || '')
+    setQualifications((d.qualifications ?? []).join('\n'))
+    setCertifications((d.certifications ?? []).join('\n'))
+    const rest: BidderProfile = {}
+    if (d.similar_projects?.length) rest.similar_projects = d.similar_projects
+    if (d.personnel?.length) rest.personnel = d.personnel
+    if (d.financials) rest.financials = d.financials
+    if (d.contact) rest.contact = d.contact
+    if (d.notes?.length) rest.notes = d.notes
+    setAdvancedJson(Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '')
+    setProfileId(item.id)
+    setError(null)
+    setNotice(`已载入「${item.company_name}」的资料`)
+  }
+
+  async function saveToLibrary() {
+    setError(null)
+    setNotice(null)
+    if (!companyName.trim()) {
+      setError('请先填写公司名称，再保存资料')
+      return
+    }
+    const body = { company_name: companyName.trim(), data: buildProfile() }
+    const isUpdate = profileId !== null
+    try {
+      const saved = isUpdate
+        ? await updateProfile(profileId as number, body)
+        : await createProfile(body)
+      setProfileId(saved.id)
+      await refreshProfiles()
+      setNotice(isUpdate ? '已覆盖保存到资料库' : '已保存到资料库')
+    } catch (e) {
+      setError(describeError(e))
+    }
+  }
+
+  async function removeFromLibrary() {
+    if (profileId === null) return
+    if (!window.confirm('确认删除这份资料？已生成的标书不受影响。')) return
+    setError(null)
+    setNotice(null)
+    try {
+      await deleteProfile(profileId)
+      setProfileId(null)
+      await refreshProfiles()
+      setNotice('已从资料库删除')
+    } catch (e) {
+      setError(describeError(e))
+    }
+  }
+
+  async function startBid(body: BidCreateBody) {
     setConfirmOpen(false)
     setError(null)
-    const body: BidCreateBody = {
+    setLastBody(body)
+    onRunningChange(true)
+    try {
+      const accepted = await createBid(body)
+      setJobId(accepted.job_id)
+    } catch (e) {
+      setError(describeError(e))
+      onRunningChange(false)
+    }
+  }
+
+  function submit() {
+    startBid({
       doc_id: docId,
       profile: buildProfile(),
       max_revisions: maxRevisions === '' ? null : Number(maxRevisions),
       min_score: minScore === '' ? null : Number(minScore),
       max_sections: maxSections,
       export_word: exportWord,
-    }
-    onRunningChange(true)
-    try {
-      const accepted = await createBid(body)
-      setJobId(accepted.job_id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '提交失败')
-      onRunningChange(false)
-    }
+    })
   }
 
   const busy = jobId !== null && (!job || job.status === 'pending' || job.status === 'running')
@@ -144,7 +238,19 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
             ))}
           </Card>
         )}
-        {job?.status === 'failed' && <Banner kind="error">{job.error ?? '编写失败'}</Banner>}
+        {job?.status === 'failed' && (
+          <Card title="编写失败">
+            <Banner kind="error">{job.error ?? '编写失败'}</Banner>
+            <div className="mt-3 flex gap-2">
+              {lastBody && (
+                <Button onClick={() => startBid(lastBody)}>重试（沿用原参数）</Button>
+              )}
+              <Button variant="secondary" onClick={() => setJobId(null)}>
+                返回修改参数
+              </Button>
+            </div>
+          </Card>
+        )}
         {job?.status === 'succeeded' && job.bid && <ResultView bid={job.bid} />}
       </div>
     )
@@ -176,6 +282,40 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
       </Card>
 
       <Card title="投标人资料">
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-md border border-slate-800 bg-slate-800/40 p-3">
+          <Field label="从资料库载入">
+            <select
+              value={profileId ?? ''}
+              onChange={(e) => {
+                const item = profiles.find((p) => p.id === Number(e.target.value))
+                if (item) applyProfile(item)
+                else setProfileId(null)
+              }}
+              className="w-60 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+            >
+              <option value="">（未选择）</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.company_name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Button variant="secondary" onClick={saveToLibrary}>
+            保存到资料库
+          </Button>
+          {profileId !== null && (
+            <Button variant="danger" onClick={removeFromLibrary}>
+              删除该资料
+            </Button>
+          )}
+          <span className="pb-2 text-xs text-slate-500">
+            {profiles.length === 0
+              ? '暂无历史资料（需数据库可用）'
+              : `共 ${profiles.length} 份，同公司名覆盖保存`}
+          </span>
+        </div>
+        {notice && <Banner kind="info">{notice}</Banner>}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field label="公司名称">
             <input

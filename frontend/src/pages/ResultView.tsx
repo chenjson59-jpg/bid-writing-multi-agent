@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { bidFileUrl } from '../api'
+import { bidFileUrl, describeError } from '../api'
 import { getDesktop } from '../desktop'
 import type { BidSummary } from '../types'
 import { Badge, Banner, Button, Card, Modal, Spinner } from '../ui'
@@ -43,7 +43,7 @@ export function ResultView({ bid, bidId }: { bid: BidSummary; bidId?: string }) 
       setPreviewText(await resp.text())
       setPreviewOpen(true)
     } catch (e) {
-      setPreviewError(e instanceof Error ? e.message : '预览失败')
+      setPreviewError(describeError(e))
     } finally {
       setLoading(false)
     }

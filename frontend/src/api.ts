@@ -2,6 +2,8 @@
 import type {
   BidCreateBody,
   BidHistoryItem,
+  BidderProfileItem,
+  BidderProfileUpsert,
   DocumentSummary,
   HealthInfo,
   JobView,
@@ -15,6 +17,30 @@ export class ApiError extends Error {
     super(message)
     this.status = status
   }
+}
+
+// 状态码 → 可操作的提示：把「服务器拒绝」翻译成「哪一步没起来」
+const STATUS_HINTS: Record<number, string> = {
+  0: '无法连接后端：请确认 FastAPI 已启动（/api/health 可访问）',
+  401: '访问令牌无效：请核对部署时的 API_TOKEN 与构建时的 VITE_API_TOKEN',
+  404: '资源不存在：文档可能未完成抽取，或产物已被清理',
+  413: '文件超过大小上限，请压缩或拆分后重试',
+  422: '参数校验失败，请检查填写内容',
+  429: '排队任务已达上限，请等待当前任务结束后重试',
+  503: '任务队列不可用：请确认 Redis 在运行且 Celery worker 已启动',
+}
+
+export function describeError(e: unknown): string {
+  if (e instanceof ApiError) {
+    // 404/422 的 detail 已经是业务侧具体原因（如「资料不存在」），直接用服务端文案
+    if (e.status === 404 || e.status === 422) return e.message
+    const hint = STATUS_HINTS[e.status]
+    return hint ? `${hint}（${e.status}）` : e.message
+  }
+  if (e instanceof TypeError) {
+    return STATUS_HINTS[0]
+  }
+  return e instanceof Error ? e.message : '未知错误'
 }
 
 // 打包后被 Electron 以 file:// 加载时，相对路径 /api 无法命中后端，
@@ -143,6 +169,35 @@ export function createBid(body: BidCreateBody): Promise<ParseAccepted> {
 
 export function listBids(): Promise<BidHistoryItem[]> {
   return request('/api/bids')
+}
+
+// ---- 投标人资料库：一次录入、多次复用 ----
+
+export function listProfiles(): Promise<BidderProfileItem[]> {
+  return request('/api/profiles')
+}
+
+export function createProfile(body: BidderProfileUpsert): Promise<BidderProfileItem> {
+  return request('/api/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function updateProfile(
+  id: number,
+  body: BidderProfileUpsert,
+): Promise<BidderProfileItem> {
+  return request(`/api/profiles/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteProfile(id: number): Promise<void> {
+  await request(`/api/profiles/${id}`, { method: 'DELETE' })
 }
 
 // 产物下载走浏览器导航，由响应头决定附件或内联；预览场景直接 fetch 文本。

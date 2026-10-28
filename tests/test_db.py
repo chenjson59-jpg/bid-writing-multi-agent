@@ -63,3 +63,27 @@ async def test_save_and_list_profile(db):
     assert len(profiles) == 1
     assert profiles[0]["company_name"] == "示例工程有限公司"
     assert profiles[0]["data"]["legal_representative"] == "张三"
+
+
+@pytest.mark.asyncio
+async def test_save_profile_overwrites_same_company(db):
+    """同一公司名重复录入只保留一条，避免资料库被编写任务刷成重复记录。"""
+    await repository.save_profile("示例公司", {"address": "旧地址"})
+    await repository.save_profile("示例公司", {"address": "新地址"})
+    profiles = await repository.list_profiles()
+    assert len(profiles) == 1
+    assert profiles[0]["data"]["address"] == "新地址"
+
+
+@pytest.mark.asyncio
+async def test_update_and_delete_profile(db):
+    profile_id = await repository.save_profile("示例公司", {"address": "北京"})
+    assert profile_id is not None
+
+    assert await repository.update_profile(profile_id, "示例公司", {"address": "上海"}) is True
+    profiles = await repository.list_profiles()
+    assert profiles[0]["data"]["address"] == "上海"
+
+    assert await repository.delete_profile(profile_id) is True
+    assert await repository.list_profiles() == []
+    assert await repository.delete_profile(profile_id) is False

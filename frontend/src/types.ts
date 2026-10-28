@@ -134,4 +134,18 @@ export interface HealthInfo {
   version: string
   task_backend: string
   broker_ok: boolean | null
+  worker_ok: boolean | null
+  queue_depth: number | null
+}
+
+export interface BidderProfileItem {
+  id: number
+  company_name: string
+  data: BidderProfile
+  created_at: string | null
+}
+
+export interface BidderProfileUpsert {
+  company_name: string
+  data: BidderProfile
 }

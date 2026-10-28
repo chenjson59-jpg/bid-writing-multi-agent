@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from 'react'
-import { uploadParse } from '../api'
+import { describeError, uploadParse } from '../api'
 import { usePolling } from '../hooks'
 import { Banner, Button, Card, EmptyState, Field, ProgressBar, Spinner } from '../ui'
 
@@ -67,7 +67,7 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
       if (e instanceof DOMException && e.name === 'AbortError') {
         setError(null)
       } else {
-        setError(e instanceof Error ? e.message : '上传失败')
+        setError(describeError(e))
       }
       onRunningChange(false)
     } finally {

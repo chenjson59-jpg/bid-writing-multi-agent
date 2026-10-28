@@ -192,6 +192,65 @@ def test_health(client):
     assert data["status"] == "ok"
     assert data["task_backend"] == "local"
     assert data["broker_ok"] is None
+    # local 后端无独立 worker，健康检查按「就绪」返回，前端据此显示绿点
+    assert data["worker_ok"] is True
+    assert data["queue_depth"] == 0
+
+
+# ---- 投标人资料库 ----
+
+
+def test_profile_create_update_delete(client, monkeypatch):
+    from api import routes
+
+    async def fake_save(company_name, data):
+        assert company_name == "示例公司"  # 服务端会 strip
+        return 7
+
+    async def fake_update(profile_id, company_name, data):
+        return profile_id == 7
+
+    async def fake_delete(profile_id):
+        return profile_id == 7
+
+    monkeypatch.setattr(routes, "save_profile", fake_save)
+    monkeypatch.setattr(routes, "update_profile", fake_update)
+    monkeypatch.setattr(routes, "delete_profile", fake_delete)
+
+    resp = client.post(
+        "/api/profiles", json={"company_name": " 示例公司 ", "data": {"address": "北京"}}
+    )
+    assert resp.status_code == 201
+    assert resp.json()["id"] == 7
+    assert resp.json()["company_name"] == "示例公司"
+
+    assert client.put(
+        "/api/profiles/7", json={"company_name": "示例公司", "data": {}}
+    ).status_code == 200
+    assert client.put(
+        "/api/profiles/8", json={"company_name": "示例公司", "data": {}}
+    ).status_code == 404
+
+    resp = client.delete("/api/profiles/7")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+    assert client.delete("/api/profiles/8").status_code == 404
+
+
+def test_profile_empty_company_name(client):
+    resp = client.post("/api/profiles", json={"company_name": "  ", "data": {}})
+    assert resp.status_code == 422
+
+
+def test_profile_db_unavailable(client, monkeypatch):
+    from api import routes
+
+    async def broken_save(company_name, data):
+        return None
+
+    monkeypatch.setattr(routes, "save_profile", broken_save)
+    resp = client.post("/api/profiles", json={"company_name": "示例公司", "data": {}})
+    assert resp.status_code == 503
 
 
 # ---- 文档库与预览 ----

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getMarkdown, listDocuments } from '../api'
+import { describeError, getMarkdown, listDocuments } from '../api'
 import type { DocumentSummary } from '../types'
 import { Badge, Banner, Button, Card, EmptyState, Modal, Spinner } from '../ui'
 
@@ -19,7 +19,7 @@ export function LibraryPage({ onWrite }: { onWrite: (docId: string) => void }) {
     try {
       setDocuments(await listDocuments())
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
+      setError(describeError(e))
     } finally {
       setLoading(false)
     }
@@ -36,7 +36,7 @@ export function LibraryPage({ onWrite }: { onWrite: (docId: string) => void }) {
     try {
       setPreviewText(await getMarkdown(doc.doc_id))
     } catch (e) {
-      setPreviewError(e instanceof Error ? e.message : '预览失败')
+      setPreviewError(describeError(e))
     } finally {
       setPreviewLoading(false)
     }

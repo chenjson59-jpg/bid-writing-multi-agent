@@ -13,13 +13,20 @@ from api.schemas import (
     BidAccepted,
     BidCreate,
     BidderProfileItem,
+    BidderProfileUpsert,
     HealthResponse,
     JobStatus,
     ParseAccepted,
     TaskHistoryItem,
 )
 from src.config import settings
-from src.db.repository import list_profiles, list_tasks
+from src.db.repository import (
+    delete_profile,
+    list_profiles,
+    list_tasks,
+    save_profile,
+    update_profile,
+)
 from src.pipeline import FILES_DIR, PARSED_DIR, _safe_filename
 
 router = APIRouter(prefix="/api")
@@ -38,6 +45,8 @@ def health() -> HealthResponse:
         version=_VERSION,
         task_backend=backend,
         broker_ok=broker_ok,
+        worker_ok=dispatch.worker_status(),
+        queue_depth=dispatch.queue_depth(),
     )
 
 
@@ -136,3 +145,36 @@ async def list_bidder_profiles(limit: int = 100) -> list[BidderProfileItem]:
     """投标人资料：编写任务提交时落库的公司资料。"""
     profiles = await list_profiles(limit=limit)
     return [BidderProfileItem(**item) for item in profiles]
+
+
+@router.post("/profiles", response_model=BidderProfileItem, status_code=201)
+async def create_bidder_profile(body: BidderProfileUpsert) -> BidderProfileItem:
+    """新建资料。公司名已存在时覆盖最近一条（一次录入、多次复用）。"""
+    company_name = body.company_name.strip()
+    profile_id = await save_profile(company_name, body.data)
+    if profile_id is None:
+        raise HTTPException(503, "数据库不可用，资料未保存")
+    return BidderProfileItem(id=profile_id, company_name=company_name, data=body.data)
+
+
+@router.put("/profiles/{profile_id}", response_model=BidderProfileItem)
+async def update_bidder_profile(
+    profile_id: int, body: BidderProfileUpsert
+) -> BidderProfileItem:
+    company_name = body.company_name.strip()
+    updated = await update_profile(profile_id, company_name, body.data)
+    if updated is None:
+        raise HTTPException(503, "数据库不可用")
+    if not updated:
+        raise HTTPException(404, "资料不存在")
+    return BidderProfileItem(id=profile_id, company_name=company_name, data=body.data)
+
+
+@router.delete("/profiles/{profile_id}")
+async def delete_bidder_profile(profile_id: int) -> dict[str, bool]:
+    deleted = await delete_profile(profile_id)
+    if deleted is None:
+        raise HTTPException(503, "数据库不可用")
+    if not deleted:
+        raise HTTPException(404, "资料不存在")
+    return {"deleted": True}

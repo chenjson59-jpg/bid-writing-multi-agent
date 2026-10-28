@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -11,6 +11,8 @@ class HealthResponse(BaseModel):
     version: str
     task_backend: str
     broker_ok: bool | None
+    worker_ok: bool | None = None
+    queue_depth: int | None = None
 
 
 class ParseAccepted(BaseModel):
@@ -91,3 +93,19 @@ class BidderProfileItem(BaseModel):
     company_name: str
     data: dict[str, Any] = {}
     created_at: str | None = None
+
+
+class BidderProfileUpsert(BaseModel):
+    """新建/覆盖投标人资料：公司名作为业务主键，data 结构同 `BidderProfile`。"""
+
+    company_name: str = Field(min_length=1, max_length=255)
+    data: dict[str, Any] = {}
+
+    @field_validator("company_name")
+    @classmethod
+    def _strip_company_name(cls, value: str) -> str:
+        """去掉首尾空白；全空白视为非法，避免资料库里出现无名记录。"""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("公司名不能为空")
+        return stripped
