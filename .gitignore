@@ -18,6 +18,9 @@ dump.rdb
 # 招标文件原文（不提交到公开仓库）
 招标文件/
 
+# 个人求职 Demo 整改清单（仅本地使用）
+DEMO待完善清单.md
+
 # 前端
 node_modules/
 frontend/dist/

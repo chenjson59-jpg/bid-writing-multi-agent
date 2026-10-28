@@ -274,6 +274,116 @@ npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
 - 右上角可切换深色/浅色主题（默认深色），选择保存在 `localStorage`，
   刷新或重启后保持。
 
+## 服务器部署（Docker + 单端口）
+
+生产形态：FastAPI 挂载 `frontend/dist`，前端与 API 共用一个端口对外；Redis 跑在
+Docker 容器里；API 与 worker 跑在 tmux 会话中，SSH 断开不受影响。以下以 Web 端口
+`8200`、Redis 宿主端口 `6382`、部署目录 `~/group_2/bidding` 为例。
+
+### 1. 本地打包前端
+
+访问令牌在构建期注入，必须与服务器 `.env` 的 `API_TOKEN` 一致：
+
+```powershell
+cd frontend
+$env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
+```
+
+> 令牌会编译进前端 JS，防的是陌生脚本直接打 API，不是强保密手段；
+> 高安全场景应改用反向代理 Basic Auth 或防火墙 IP 白名单。
+
+### 2. 服务器准备
+
+```bash
+docker ps                                      # 报 permission denied 则走文末回退方案
+ss -tln | grep -E ':(8200|6382)'               # 有输出说明端口被占，换端口
+python3 -V                                     # 需 ≥3.11
+curl -sI https://ark.cn-beijing.volces.com | head -1   # 必须能访问火山方舟
+
+cd ~/group_2
+git clone git@github.com:chenjson59-jpg/bid-writing-multi-agent.git bidding && cd bidding
+curl -LsSf https://astral.sh/uv/install.sh | sh && source ~/.local/bin/env
+uv sync
+```
+
+仓库为私有时需在服务器配置 SSH key 或改用 `https://<token>@github.com/...` 形式。
+然后上传构建产物与已有数据（本地执行；后两者可选，省去重新解析的 LLM 费用）：
+
+```powershell
+scp -r frontend\dist user@IP:~/group_2/bidding/frontend/
+scp -r upload chroma_db user@IP:~/group_2/bidding/
+```
+
+### 3. Redis 容器
+
+```bash
+docker run -d \
+  --name bidding-redis \
+  --restart unless-stopped \
+  -p 127.0.0.1:6382:6379 \
+  -v bidding-redis-data:/data \
+  redis:7-alpine \
+  redis-server --requirepass 'Redis密码' --appendonly yes
+
+docker exec -it bidding-redis redis-cli -a 'Redis密码' PING   # 期望 PONG
+```
+
+只绑定 `127.0.0.1` 且必须设密码；数据存命名卷，容器重建不丢，服务器重启后自动拉起。
+
+### 4. 配置 .env
+
+```bash
+cp .env.example .env && chmod 600 .env
+```
+
+关键项：
+
+```env
+API_TOKEN=自定义复杂令牌                          # 与第 1 步 VITE_API_TOKEN 一致；留空不校验
+CELERY_BROKER_URL=redis://:Redis密码@127.0.0.1:6382/0
+CELERY_RESULT_BACKEND=redis://:Redis密码@127.0.0.1:6382/1
+CELERY_WORKER_POOL=prefork                      # Linux 可用 prefork；Windows 必须 solo
+DATABASE_URL=                                   # 留空则不启用 PostgreSQL（任务历史不持久化）
+```
+
+### 5. 启动（tmux）
+
+```bash
+tmux new -s bidding
+uv run uvicorn api.main:app --host 0.0.0.0 --port 8200
+# Ctrl+B " 分屏后：
+uv run celery -A src.celery_app worker --loglevel=info
+# Ctrl+B d 脱离会话；tmux attach -t bidding 重新进入
+```
+
+### 6. 验证
+
+```bash
+curl localhost:8200/api/health        # {"status":"ok","broker_ok":true}
+curl localhost:8200/api/documents     # 401（令牌生效）
+curl -H 'X-API-Token: 自定义复杂令牌' localhost:8200/api/documents   # 200
+curl -s localhost:8200/ | head -1     # <!doctype html>
+```
+
+浏览器访问 `http://服务器IP:8200`。打不开说明防火墙未放行 8200，可联系管理员开放，
+或临时用 `ssh -L 8200:127.0.0.1:8200 user@IP` 建隧道后访问 `http://localhost:8200`。
+
+### 7. 运维与回退
+
+```bash
+docker logs -f bidding-redis     # Redis 日志
+docker restart bidding-redis     # 重启 Redis
+tmux attach -t bidding           # 查看 API / worker
+```
+
+`docker ps` 无权限时改用用户态 Redis，`.env` 连接串不变：
+
+```bash
+conda install -c conda-forge redis -y
+redis-server --port 6382 --bind 127.0.0.1 --requirepass 'Redis密码' \
+  --daemonize yes --logdir ~/group_2 --logfile redis.log
+```
+
 ## 测试
 
 pytest 作为开发依赖安装（`[dependency-groups] dev`），`tests/` 下的用例全部离线运行，
@@ -296,6 +406,6 @@ uv run pytest -k "chunk or toc"
   需要 MinerU 的版面/表格能力，且抽取结果会标注为不可用。
 - 目录页会被识别并跳过，不参与分块。
 - 无书签 PDF 仍可解析与入库，但只能按页分块，无法恢复章节层级。
-- 前端联调尚未完成；数据库持久化已接入（投标人资料与任务历史）。
+- 前端联调已完成；数据库持久化为可选增强（投标人资料与任务历史，`DATABASE_URL` 留空则降级）。
 - 投标文件生成为草稿：占位符必须补全，公司信息与报价必须人工核对；
   完整跑一遍会发起较多 LLM 调用，开发时可用 `--max-sections` 控制规模。
