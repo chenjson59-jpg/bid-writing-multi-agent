@@ -76,6 +76,7 @@ upload/
     extraction.json          # 结构化抽取结果
     raw/                     # MinerU 分片与解压原件（调试溯源）
   images/<doc_id>/           # 抽取的图片
+  bids/<doc_id>-<时间>/       # 生成的投标产物（见下文「产物」）
 chroma_db/                   # 本地向量库
 ```
 
@@ -115,8 +116,18 @@ uv run python -m api
 | POST | `/api/bids` | 基于已有抽取结果创建投标文件编写任务，立即返回 **202** |
 | POST | `/api/bids/{bid_id}/supplement` | 补写未覆盖的评分因素，生成新产物（原产物保留），立即返回 **202** |
 | GET | `/api/jobs/{job_id}` | 查询任务状态、进度与结果（parse / bid 共用） |
+| POST | `/api/jobs/{job_id}/cancel` | 取消未结束的任务（Celery `revoke`；local 后端丢弃结果）；已结束返回 **409** |
+| POST | `/api/jobs/{job_id}/retry` | 仅失败任务可重试，参数取自任务历史，返回新 `job_id`（**202**） |
 | GET | `/api/documents` | 已解析文档列表（读取 `upload/parsed`） |
+| DELETE | `/api/documents/{doc_id}` | 删除解析结果与上传原件；不存在返回 **404** |
 | GET | `/api/bids` | 历史投标产物列表（读取 `upload/bids/*/report.json`） |
+| GET | `/api/bids/{bid_id}` | 单份产物摘要（不存在返回 **404**） |
+| DELETE | `/api/bids/{bid_id}` | 删除标书产物目录（不动原始招标文件）；不存在返回 **404** |
+| GET | `/api/bids/{bid_id}/sections` | 章节列表：顺序、锁定状态、字数、占位符数与评审分数 |
+| GET | `/api/bids/{bid_id}/sections/{section_id}` | 单章详情（含 Markdown 正文，供编辑回填） |
+| PUT | `/api/bids/{bid_id}/sections/{section_id}` | 保存单章正文与/或锁定状态，原地刷新整套产物，返回最新摘要 |
+| GET | `/api/bids/{bid_id}/sections/{section_id}/file` | 导出单章 Markdown（附件下载） |
+| POST | `/api/bids/{bid_id}/sections/rewrite` | 重写指定章节（`section_ids` 为空表示全部未锁定章节），返回 **202** |
 | GET | `/api/documents/{doc_id}/markdown` | 预览解析后的 `content.md` |
 | GET | `/api/bids/{bid_id}/files/{name}` | 预览/下载 `bid.md`、`bid.docx`、`report.json`、`outline.json`；`download=1` 触发附件下载 |
 | GET | `/api/tasks` | 任务历史（解析 + 编写，读数据库；库不可用返回空） |
@@ -204,11 +215,63 @@ curl -X POST "http://127.0.0.1:8001/api/bids/<bid_id>/supplement"
 上传限制：仅 PDF（校验 `%PDF-` 魔数）、默认 200 MB；文件名会净化，落盘为
 `upload/files/<doc_id>_<原文件名>`。
 
+### 任务取消、重试与数据生命周期
+
+- 任务页（「任务与产物」）合并展示**标书产物**与**任务记录**：运行中的任务可取消，
+  失败任务可按原参数重试；取消只是不再接收结果，不保证中断已发出的模型调用。
+- `POST /api/jobs/{job_id}/retry` 从 `task_history` 还原参数：解析任务按
+  `doc_id` 找回原件，编写任务还原 profile 与 `max_sections` 等参数；原件或抽取结果
+  已被清理时返回 **404**。
+- 删除接口只删除服务端副本：`DELETE /api/documents/{doc_id}` 同时清理解析结果与原件，
+  `DELETE /api/bids/{bid_id}` 只删产物目录。
+- 保留期由 `DATA_RETENTION_DAYS` 控制（默认 30 天，`0` 表示不自动清理），清理脚本：
+
+```bash
+uv run python scripts/cleanup.py            # 按保留期删除
+uv run python scripts/cleanup.py --dry-run  # 只打印待删内容
+uv run python scripts/cleanup.py --all      # 清空演示数据
+```
+
+数据库中的任务历史不会被脚本清理，只清理磁盘上的解析结果、产物与上传原件。
+
+### 章节级编辑与锁定
+
+产物生成后可按章返工，不必整篇重跑：
+
+```bash
+# 列出章节（含 locked、字数、占位符数）
+curl "http://127.0.0.1:8001/api/bids/<bid_id>/sections"
+
+# 改写单章正文（空 body 或非法章节返回 422）
+curl -X PUT "http://127.0.0.1:8001/api/bids/<bid_id>/sections/section_3" \
+     -H 'Content-Type: application/json' \
+     -d '{"markdown": "## 施工组织设计\n\n……", "locked": true}'
+
+# 重写：section_ids 为空数组/缺省表示全部未锁定章节
+curl -X POST "http://127.0.0.1:8001/api/bids/<bid_id>/sections/rewrite" \
+     -H 'Content-Type: application/json' -d '{"section_ids": ["section_3"]}'
+
+# 导出单章
+curl -OJ "http://127.0.0.1:8001/api/bids/<bid_id>/sections/section_3/file"
+```
+
+- 事实来源是 `sections/index.json`；保存或重写后统一重新合并 `bid.md`、
+  导出 `bid.docx`、刷新 `report.json` 与 `outline.json`，不会出现多处不一致。
+- **锁定**的章节在批量重写时被跳过，重写结果的 warnings 会写明「跳过 N 个锁定章节」；
+  所选章节全部锁定时返回 **422**。
+- 重写复用原产物的 `write_options`（修订次数、评分阈值、检索条数等），
+  只对目标章节执行写作与评审，`llm_usage` 只统计本次调用。
+- 重写是异步任务（`kind="rewrite"`），与补写共用 worker 与任务历史，
+  失败可在任务页重试；新增任务后同样需**重启 worker**。
+- 旧产物（没有 `sections/`）首次访问章节接口时会按 `bid.md` + `outline.json`
+  反推补齐，历史产物因此也能编辑与锁定。
+
 ## 异步任务（Celery + Redis）
 
 `TASK_BACKEND=celery`（默认）时，`POST /api/parse` 与 `POST /api/bids` 只负责
 校验与入队，实际执行由独立 worker 完成；任务状态与进度存放在 Redis。队列中注册了
-`bidding.parse_document`、`bidding.write_bid` 与 `bidding.supplement_bid` 三个任务。
+`bidding.parse_document`、`bidding.write_bid`、`bidding.supplement_bid` 与
+`bidding.rewrite_section` 四个任务。
 
 ```bash
 # 1. 确认 Redis 在 127.0.0.1:6379 运行
@@ -285,12 +348,16 @@ uv run python -m src.cli write <doc_id> \
 
 ```
 outline.json            章节计划
-bid.md                  合并后的完整投标文件（章节正文只在这里）
+sections/index.json     章节索引（顺序、标题、锁定状态、评审分数、生成计划）
+sections/<序号>-<id>.md 单章正文（编辑、重写、锁定的操作对象）
+bid.md                  合并后的完整投标文件
 bid.docx                Word 导出
 report.json             评分覆盖、章节得分、占位符、缺失资料
 ```
 
-章节正文目前**只存在于合并后的 `bid.md`**，不单独落盘；章节级编辑与单章导出尚未实现。
+章节正文按章落在 `sections/`，`bid.md` 由它们合并生成；编辑、重写或切换锁定后会
+原地刷新 `bid.md`、`bid.docx`、`report.json`、`outline.json`，保证产物始终一致。
+旧产物（没有 `sections/`）首次访问时会按 `bid.md` + `outline.json` 反推补齐。
 
 **投标人资料**：`--profile` 指向 JSON（结构见 `examples/bidder_profile.example.json`）。
 资料未提供的公司名称、人员、证书、业绩、财务等信息不会编造，统一生成
@@ -315,6 +382,8 @@ report.json             评分覆盖、章节得分、占位符、缺失资料
    设置修订次数、评分阈值、章节数量与 Word 导出；提交前有成本确认。
 4. **结果与历史**：展示格式/评分覆盖、章节得分、缺失资料、未覆盖因素与 warnings；
    可预览 Markdown、下载 md/docx/report，Electron 下可打开 Word 或所在文件夹。
+5. **章节返工**：章节明细表支持编辑单章 Markdown、单独重写、锁定 / 解锁与单章导出，
+   批量重写只作用于未锁定章节，完成后自动刷新整套产物。
 
 ```bash
 # 先启动 Redis、Celery worker 与 FastAPI（见上文），再启动前端
@@ -459,7 +528,8 @@ uv run pytest -k "chunk or toc"
 
 测试覆盖：书签树与归页、分片、本地解析、MinerU 结果合并、schema 容错、JSON 提取、
 提示词路由、抽取缓存、章节分块、火山方舟嵌入包装、Chroma 幂等入库、CLI 退出码与编排顺序，
-以及 API 任务分发、投标任务、文档库/标书历史列表与产物下载的路径校验。
+以及 API 任务分发、投标任务、文档库/标书历史列表与产物下载的路径校验、
+章节落盘反推与章节级编辑/重写/锁定。
 
 ## 当前限制
 
@@ -469,7 +539,9 @@ uv run pytest -k "chunk or toc"
 - 无书签 PDF 仍可解析与入库，但只能按页分块，无法恢复章节层级。
 - 前端联调已完成；数据库持久化为可选增强（投标人资料与任务历史，`DATABASE_URL` 留空则降级）。
 - 只有单一共享 `API_TOKEN`，无登录、无多用户与权限隔离；下载接口支持 `?token=`，会进访问日志。
-- 任务不可取消，只能等待结束；失败任务可在编写页沿用原参数重试。
-- 章节不支持单独重写、编辑或锁定，重跑会整篇覆盖；Word 无封面、目录与页码。
+- 取消任务只是不再接收结果，不保证中断已发出的模型调用；重写按章并发缺失，
+  长产物批量重写仍是串行执行。
+- 章节编辑是纯文本替换，没有富文本与版本回滚（每次保存都会覆盖 `sections/` 内正文）；
+  Word 仍无封面、目录与页码。
 - 投标文件生成为草稿：占位符必须补全，公司信息与报价必须人工核对；
   完整跑一遍会发起较多 LLM 调用，开发时可用 `--max-sections` 控制规模。

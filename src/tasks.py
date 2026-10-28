@@ -196,3 +196,42 @@ def supplement_bid(self, bid_id: str) -> dict[str, Any]:
     except Exception as exc:
         finish_task_sync(job_id, "failed", error=str(exc))
         raise
+
+
+def run_section_rewrite_task(
+    bid_id: str,
+    section_ids: list[str] | None,
+    report: Callable[[str], None],
+) -> dict[str, Any]:
+    """章节级重写核心逻辑（P1-2）：只重写指定章节，锁定章节跳过。"""
+    from src.bid_writer.sections import rewrite_sections
+
+    report("重写章节")
+    result = rewrite_sections(bid_id, section_ids)
+    return {"bid": result.summary()}
+
+
+@celery_app.task(bind=True, name="bidding.rewrite_section")
+def rewrite_section(
+    self, bid_id: str, section_ids: list[str] | None = None
+) -> dict[str, Any]:
+    """Celery 入口：章节级重写（原地更新产物，不新建目录）。"""
+    started_at = time.time()
+    job_id = self.request.id
+
+    def sink(messages: list[str]) -> None:
+        self.update_state(
+            state="PROGRESS",
+            meta={"progress": messages, "started_at": started_at},
+        )
+
+    reporter = ProgressReporter(sink)
+    try:
+        result = run_section_rewrite_task(bid_id, section_ids, reporter.report)
+        result["progress"] = reporter.snapshot()
+        result["started_at"] = started_at
+        finish_task_sync(job_id, "succeeded", summary=bid_summary(result.get("bid") or {}))
+        return result
+    except Exception as exc:
+        finish_task_sync(job_id, "failed", error=str(exc))
+        raise

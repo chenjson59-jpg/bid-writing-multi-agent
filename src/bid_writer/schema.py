@@ -228,6 +228,10 @@ class BidReport:
     llm_usage: dict[str, Any] = field(default_factory=dict)
     # 补写产物所基于的原产物 bid_id（P1-1），正常生成为空
     supplement_of: str = ""
+    # 生成参数（P1-2）：章节级重写时按原参数执行
+    write_options: dict[str, Any] = field(default_factory=dict)
+    # 最后编辑时间（P1-2）：章节编辑 / 重写 / 锁定后回填
+    updated_at: str = ""
     # 产物路径（落盘时由编排层回填）
     output_dir: str = ""
     markdown_path: str = ""

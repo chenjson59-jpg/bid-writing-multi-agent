@@ -120,6 +120,37 @@ export interface BidHistoryItem {
   summary: BidSummary
 }
 
+// 章节级编辑（P1-2）
+export interface SectionInfo {
+  id: string
+  title: string
+  order: number
+  strategy: string
+  locked: boolean
+  word_count: number
+  placeholder_count: number
+  score_before: number
+  score_after: number
+  revisions: number
+}
+
+export interface SectionDetail extends SectionInfo {
+  markdown: string
+}
+
+export interface TaskHistoryItem {
+  job_id: string
+  kind: 'parse' | 'bid' | 'supplement' | string
+  doc_id: string | null
+  source_name: string | null
+  status: JobStatus
+  options: Record<string, unknown>
+  summary: Record<string, unknown> | null
+  error: string | null
+  created_at: string | null
+  finished_at: string | null
+}
+
 export interface BidderProfile {
   company_name?: string
   legal_representative?: string

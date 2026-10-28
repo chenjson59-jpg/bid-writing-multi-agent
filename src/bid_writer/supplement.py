@@ -205,6 +205,11 @@ def run_supplement(bid_id: str, *, caller=None, options: dict | None = None):
         encoding="utf-8",
     )
 
+    # 章节正文独立落盘（P1-2），便于补写后继续做章节级编辑
+    from src.bid_writer.sections import write_sections
+
+    write_sections(output_dir, all_drafts)
+
     try:
         docx_path = output_dir / "bid.docx"
         markdown_to_docx(markdown, docx_path)
@@ -213,6 +218,7 @@ def run_supplement(bid_id: str, *, caller=None, options: dict | None = None):
         report.warnings.append(f"Word 导出失败：{exc}")
 
     report.llm_usage = meter.summary()
+    report.write_options = write_options.__dict__.copy()
     report.output_dir = str(output_dir)
     report.markdown_path = str(markdown_path)
     report.outline_path = str(outline_path)

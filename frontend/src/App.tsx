@@ -101,7 +101,7 @@ export default function App() {
     { id: 'upload', label: '上传解析', running: runningParse, count: null },
     { id: 'library', label: '文档库', running: false, count: docCount },
     { id: 'write', label: '编写标书', running: runningBid, count: null },
-    { id: 'history', label: '标书历史', running: false, count: bidCount },
+    { id: 'history', label: '任务与产物', running: false, count: bidCount },
   ]
 
   // local 后端没有 Redis，队列状态按「进程内」展示，不做红点告警
@@ -178,7 +178,9 @@ export default function App() {
             onWrite={goWrite}
           />
         )}
-        {tab === 'library' && <LibraryPage onWrite={goWrite} />}
+        {tab === 'library' && (
+          <LibraryPage onWrite={goWrite} onChanged={refreshCounts} />
+        )}
         {tab === 'write' && (
           <WritePage
             initialDocId={selectedDocId}
@@ -186,7 +188,7 @@ export default function App() {
             onWritten={refreshCounts}
           />
         )}
-        {tab === 'history' && <HistoryPage />}
+        {tab === 'history' && <HistoryPage onChanged={refreshCounts} />}
       </main>
     </div>
   )

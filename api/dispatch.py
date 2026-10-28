@@ -30,6 +30,7 @@ from src.tasks import (
     ProgressReporter,
     run_bid_task,
     run_parse_task,
+    run_section_rewrite_task,
     run_supplement_task,
 )
 
@@ -77,7 +78,7 @@ class CeleryBackend:
     def submit(
         self, job_id: str, kind: str, payload: dict, meta: dict
     ) -> None:
-        from src.tasks import parse_document, supplement_bid, write_bid
+        from src.tasks import parse_document, rewrite_section, supplement_bid, write_bid
 
         # 先写任务标记（供 pending 阶段查询元数据），再入队
         self._r().set(
@@ -87,6 +88,11 @@ class CeleryBackend:
         )
         if kind == "supplement":
             supplement_bid.apply_async(args=(payload["bid_id"],), task_id=job_id)
+        elif kind == "rewrite":
+            rewrite_section.apply_async(
+                args=(payload["bid_id"], payload.get("section_ids")),
+                task_id=job_id,
+            )
         elif kind == "bid":
             write_bid.apply_async(
                 args=(payload["doc_id"], payload["profile"], payload["options"]),
@@ -152,6 +158,18 @@ class CeleryBackend:
         except Exception:  # noqa: BLE001 - 查询失败按 0 处理
             return 0
 
+    def cancel(self, job_id: str) -> bool:
+        """撤销任务：已结束的任务不再处理（调用方需先校验状态）。
+
+        `terminate=False` 只阻止未开始的任务执行；正在运行的任务会跑完，
+        worker 侧不强制杀进程，避免留下半成品产物。
+        """
+        if not self._r().exists(_JOB_KEY.format(job_id=job_id)):
+            return False
+        celery_app.control.revoke(job_id, terminate=False)
+        finish_task_sync(job_id, "failed", error="任务已取消")
+        return True
+
 
 class LocalBackend:
     """内存任务表 + 线程池（无 Redis 环境）。"""
@@ -186,8 +204,11 @@ class LocalBackend:
     def _run(self, job_id: str, kind: str, payload: dict) -> None:
         started_at = time.time()
         with self._lock:
-            self._jobs[job_id]["status"] = "running"
-            self._jobs[job_id]["started_at"] = started_at
+            job = self._jobs[job_id]
+            if job.get("cancelled"):
+                return
+            job["status"] = "running"
+            job["started_at"] = started_at
 
         def sink(messages: list[str]) -> None:
             with self._lock:
@@ -197,16 +218,32 @@ class LocalBackend:
         try:
             if kind == "supplement":
                 result = run_supplement_task(payload["bid_id"], reporter.report)
-                with self._lock:
-                    self._jobs[job_id].update(
-                        status="succeeded",
-                        finished_at=time.time(),
-                        progress=reporter.snapshot(),
-                        bid=result.get("bid"),
-                    )
-                finish_task_sync(
-                    job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                written = self._finish(
+                    job_id,
+                    status="succeeded",
+                    finished_at=time.time(),
+                    progress=reporter.snapshot(),
+                    bid=result.get("bid"),
                 )
+                if written:
+                    finish_task_sync(
+                        job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                    )
+            elif kind == "rewrite":
+                result = run_section_rewrite_task(
+                    payload["bid_id"], payload.get("section_ids"), reporter.report
+                )
+                written = self._finish(
+                    job_id,
+                    status="succeeded",
+                    finished_at=time.time(),
+                    progress=reporter.snapshot(),
+                    bid=result.get("bid"),
+                )
+                if written:
+                    finish_task_sync(
+                        job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                    )
             elif kind == "bid":
                 result = run_bid_task(
                     payload["doc_id"],
@@ -214,37 +251,65 @@ class LocalBackend:
                     payload["options"],
                     reporter.report,
                 )
-                with self._lock:
-                    self._jobs[job_id].update(
-                        status="succeeded",
-                        finished_at=time.time(),
-                        progress=reporter.snapshot(),
-                        bid=result.get("bid"),
-                    )
-                finish_task_sync(
-                    job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                written = self._finish(
+                    job_id,
+                    status="succeeded",
+                    finished_at=time.time(),
+                    progress=reporter.snapshot(),
+                    bid=result.get("bid"),
                 )
+                if written:
+                    finish_task_sync(
+                        job_id, "succeeded", summary=bid_summary(result.get("bid") or {})
+                    )
             else:
                 result = run_parse_task(
                     payload["source_path"], payload["options"], reporter.report
                 )
-                with self._lock:
-                    self._jobs[job_id].update(
-                        status="succeeded",
-                        finished_at=time.time(),
-                        progress=reporter.snapshot(),
-                        **_split_result(result),
-                    )
-                finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
-        except Exception as exc:  # noqa: BLE001 - 任务失败需落到任务视图
-            with self._lock:
-                self._jobs[job_id].update(
-                    status="failed",
+                written = self._finish(
+                    job_id,
+                    status="succeeded",
                     finished_at=time.time(),
-                    error=str(exc),
-                    error_type=type(exc).__name__,
+                    progress=reporter.snapshot(),
+                    **_split_result(result),
                 )
-            finish_task_sync(job_id, "failed", error=str(exc))
+                if written:
+                    finish_task_sync(job_id, "succeeded", summary=parse_summary(result))
+        except Exception as exc:  # noqa: BLE001 - 任务失败需落到任务视图
+            written = self._finish(
+                job_id,
+                status="failed",
+                finished_at=time.time(),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            if written:
+                finish_task_sync(job_id, "failed", error=str(exc))
+
+    def _finish(self, job_id: str, **fields: Any) -> bool:
+        """写入终态；任务已被取消时不再覆盖，返回 False 供调用方跳过落库。"""
+        with self._lock:
+            job = self._jobs[job_id]
+            if job.get("cancelled"):
+                return False
+            job.update(**fields)
+            return True
+
+    def cancel(self, job_id: str) -> bool:
+        """把未结束的任务标记为已取消；线程已在跑时结果不再写回。"""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job["status"] not in ("pending", "running"):
+                return False
+            job.update(
+                status="failed",
+                finished_at=time.time(),
+                error="任务已取消",
+                error_type="Cancelled",
+                cancelled=True,
+            )
+        finish_task_sync(job_id, "failed", error="任务已取消")
+        return True
 
     def get_job(self, job_id: str) -> dict | None:
         with self._lock:
@@ -331,7 +396,8 @@ def submit_bid(
         doc_id=doc_id,
         source_name=doc_id,
         status="pending",
-        options=options,
+        # profile 一并落库：失败重试时据此还原原参数（不参与编写逻辑）
+        options={**options, "profile": profile} if profile else options,
     )
     payload = {"doc_id": doc_id, "profile": profile, "options": options}
     _get_backend().submit(job_id, "bid", payload, meta)
@@ -361,8 +427,40 @@ def submit_supplement(bid_id: str, doc_id: str) -> str:
     return job_id
 
 
+def submit_section_rewrite(
+    bid_id: str, doc_id: str, section_ids: list[str] | None
+) -> str:
+    """提交章节级重写任务（P1-2），返回 job_id；`section_ids` 为空表示全部未锁定章节。"""
+    job_id = uuid.uuid4().hex
+    options = {"section_ids": section_ids} if section_ids else {}
+    meta = {
+        "job_id": job_id,
+        "kind": "rewrite",
+        "source_name": bid_id,
+        "doc_id": doc_id,
+        "options": options,
+        "created_at": time.time(),
+    }
+    upsert_task_sync(
+        job_id=job_id,
+        kind="rewrite",
+        doc_id=doc_id,
+        source_name=bid_id,
+        status="pending",
+        options=options,
+    )
+    payload = {"bid_id": bid_id, "section_ids": section_ids}
+    _get_backend().submit(job_id, "rewrite", payload, meta)
+    return job_id
+
+
 def get_job(job_id: str) -> dict | None:
     return _get_backend().get_job(job_id)
+
+
+def cancel_job(job_id: str) -> bool:
+    """取消尚未结束的任务；任务不存在或已结束返回 False。"""
+    return _get_backend().cancel(job_id)
 
 
 def queue_available() -> bool:

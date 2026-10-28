@@ -125,6 +125,27 @@ def list_bids() -> list[BidHistoryItem]:
     return items
 
 
+@router.get("/bids/{bid_id}", response_model=BidHistoryItem)
+def get_bid(bid_id: str) -> BidHistoryItem:
+    """单个产物的最新摘要：章节编辑 / 重写后前端据此刷新。"""
+    from src.bid_writer.schema import BidReport
+
+    if not _BID_ID_RE.match(bid_id):
+        raise HTTPException(422, "bid_id 格式非法")
+    report = BIDS_DIR / bid_id / "report.json"
+    if not report.is_file():
+        raise HTTPException(404, "产物不存在")
+    try:
+        data = json.loads(report.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise HTTPException(422, f"报告损坏：{exc}") from exc
+    return BidHistoryItem(
+        bid_id=bid_id,
+        generated_at=data.get("generated_at"),
+        summary=BidReport(**data).summary(),
+    )
+
+
 @router.get("/bids/{bid_id}/files/{name}")
 def download_bid_file(bid_id: str, name: str, download: bool = False) -> Response:
     """产物文件下载，仅允许白名单文件，且路径必须落在产物目录内。"""

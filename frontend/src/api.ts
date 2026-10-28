@@ -2,12 +2,16 @@
 import type {
   BidCreateBody,
   BidHistoryItem,
+  BidSummary,
   BidderProfileItem,
   BidderProfileUpsert,
   DocumentSummary,
   HealthInfo,
   JobView,
   ParseAccepted,
+  SectionDetail,
+  SectionInfo,
+  TaskHistoryItem,
 } from './types'
 
 export class ApiError extends Error {
@@ -171,9 +175,76 @@ export function listBids(): Promise<BidHistoryItem[]> {
   return request('/api/bids')
 }
 
+// ---- 任务历史、取消与重试（P1-4）----
+
+export function listTasks(limit = 100): Promise<TaskHistoryItem[]> {
+  return request(`/api/tasks?limit=${limit}`)
+}
+
+export function cancelJob(jobId: string): Promise<{ cancelled: boolean }> {
+  return request(`/api/jobs/${jobId}/cancel`, { method: 'POST' })
+}
+
+export function retryJob(jobId: string): Promise<ParseAccepted> {
+  return request(`/api/jobs/${jobId}/retry`, { method: 'POST' })
+}
+
+// ---- 删除（P1-7）----
+
+export async function deleteBid(bidId: string): Promise<void> {
+  await request(`/api/bids/${bidId}`, { method: 'DELETE' })
+}
+
+export async function deleteDocument(docId: string): Promise<void> {
+  await request(`/api/documents/${docId}`, { method: 'DELETE' })
+}
+
 // 补写未覆盖评分因素：异步任务，完成后生成新产物（原产物保留）
 export function createSupplement(bidId: string): Promise<ParseAccepted> {
   return request(`/api/bids/${bidId}/supplement`, { method: 'POST' })
+}
+
+// ---- 章节级编辑、重写与锁定（P1-2）----
+
+export function getBid(bidId: string): Promise<BidHistoryItem> {
+  return request(`/api/bids/${bidId}`)
+}
+
+export function listSections(bidId: string): Promise<SectionInfo[]> {
+  return request(`/api/bids/${bidId}/sections`)
+}
+
+export function getSection(bidId: string, sectionId: string): Promise<SectionDetail> {
+  return request(`/api/bids/${bidId}/sections/${encodeURIComponent(sectionId)}`)
+}
+
+export function saveSection(
+  bidId: string,
+  sectionId: string,
+  body: { markdown?: string; locked?: boolean },
+): Promise<BidSummary> {
+  return request(`/api/bids/${bidId}/sections/${encodeURIComponent(sectionId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function rewriteSections(
+  bidId: string,
+  sectionIds: string[] | null,
+): Promise<ParseAccepted> {
+  return request(`/api/bids/${bidId}/sections/rewrite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ section_ids: sectionIds }),
+  })
+}
+
+// 单章导出走浏览器导航，令牌同样经 query 传递
+export function sectionFileUrl(bidId: string, sectionId: string): string {
+  const url = apiUrl(`/api/bids/${bidId}/sections/${encodeURIComponent(sectionId)}/file`)
+  return API_TOKEN ? `${url}?token=${encodeURIComponent(API_TOKEN)}` : url
 }
 
 // ---- 投标人资料库：一次录入、多次复用 ----

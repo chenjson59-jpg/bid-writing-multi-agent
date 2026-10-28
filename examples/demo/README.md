@@ -38,6 +38,8 @@ uv run python scripts/install_demo_data.py     # 装入 upload/
 
 - 文档库出现 `tender_demo.pdf`（6 章、已抽取）；
 - 「标书历史」出现一条 9 章产物，含 `bid.md` / `bid.docx` / `report.json` / `outline.json`；
+  首次打开章节列表时会按 `bid.md` + `outline.json` 反推生成 `sections/`，之后即可按章
+  编辑、重写与锁定；
 - 若数据库可用，资料库出现「示例水务工程有限公司」，编写页可一键载入。
 
 产物为**程序真实计算**：`report.json` 由 `build_report()` 依据 `artifacts/sections/*.md`

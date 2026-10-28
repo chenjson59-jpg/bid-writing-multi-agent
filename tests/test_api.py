@@ -412,3 +412,298 @@ def test_supplement_submits_job(client, local_backend, monkeypatch):
     assert body["job_id"] == "job-supp"
     assert body["kind"] == "supplement"
     assert body["doc_id"] == "0123456789abcdef"
+
+
+# ---- 任务取消与重试（P1-4）----
+
+_DOC_ID = "0123456789abcdef"
+_OLD_JOB = "0123456789abcdef0123456789abcdef"
+
+
+def test_cancel_unknown_job(client):
+    resp = client.post("/api/jobs/0000000000000000/cancel")
+    assert resp.status_code == 404
+
+
+def test_cancel_finished_job(client, monkeypatch):
+    monkeypatch.setattr(tasks, "run_parse", lambda *a, **k: _FakeDoc())
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"%PDF-1.4", "application/pdf")}
+    )
+    job_id = resp.json()["job_id"]
+    _poll(client, job_id)
+
+    resp = client.post(f"/api/jobs/{job_id}/cancel")
+    assert resp.status_code == 409
+    assert "已结束" in resp.json()["detail"]
+
+
+def test_cancel_running_job(client, monkeypatch):
+    def slow(*a, **k):
+        time.sleep(0.3)
+        return _FakeDoc()
+
+    monkeypatch.setattr(tasks, "run_parse", slow)
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"%PDF-1.4", "application/pdf")}
+    )
+    job_id = resp.json()["job_id"]
+
+    resp = client.post(f"/api/jobs/{job_id}/cancel")
+    assert resp.status_code == 200
+    assert resp.json()["cancelled"] is True
+
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["status"] == "failed"
+    assert job["error"] == "任务已取消"
+
+    # 后台线程跑完后不得把状态覆盖回 succeeded
+    time.sleep(0.5)
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["status"] == "failed"
+
+
+def _failed_task(**overrides) -> dict:
+    task = {
+        "job_id": _OLD_JOB,
+        "kind": "parse",
+        "doc_id": _DOC_ID,
+        "source_name": "a.pdf",
+        "status": "failed",
+        "options": {"parser": "local", "force": False, "extract": False, "ingest": False},
+        "summary": None,
+        "error": "解析失败",
+        "created_at": None,
+        "finished_at": None,
+    }
+    task.update(overrides)
+    return task
+
+
+def test_retry_unknown_task(client, monkeypatch):
+    from api import routes
+
+    async def missing(job_id):
+        return None
+
+    monkeypatch.setattr(routes, "get_task", missing)
+    assert client.post(f"/api/jobs/{_OLD_JOB}/retry").status_code == 404
+
+
+def test_retry_requires_failed_status(client, monkeypatch):
+    from api import routes
+
+    async def finished(job_id):
+        return _failed_task(status="succeeded")
+
+    monkeypatch.setattr(routes, "get_task", finished)
+    resp = client.post(f"/api/jobs/{_OLD_JOB}/retry")
+    assert resp.status_code == 409
+    assert "仅失败任务可重试" in resp.json()["detail"]
+
+
+def test_retry_parse_resubmits(client, monkeypatch, local_backend):
+    from api import routes
+
+    async def failed(job_id):
+        return _failed_task()
+
+    monkeypatch.setattr(routes, "get_task", failed)
+    monkeypatch.setattr(tasks, "run_parse", lambda *a, **k: _FakeDoc())
+    files = local_backend / "upload" / "files"
+    files.mkdir(parents=True)
+    (files / f"{_DOC_ID}_a.pdf").write_bytes(b"%PDF-1.4")
+
+    resp = client.post(f"/api/jobs/{_OLD_JOB}/retry")
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["kind"] == "parse"
+    assert body["job_id"] != _OLD_JOB
+    assert _poll(client, body["job_id"])["status"] == "succeeded"
+
+
+def test_retry_parse_source_missing(client, monkeypatch):
+    from api import routes
+
+    async def failed(job_id):
+        return _failed_task()
+
+    monkeypatch.setattr(routes, "get_task", failed)
+    resp = client.post(f"/api/jobs/{_OLD_JOB}/retry")
+    assert resp.status_code == 404
+    assert "重新上传" in resp.json()["detail"]
+
+
+# ---- 删除文档与产物（P1-7）----
+
+
+def test_delete_document(client, local_backend):
+    parsed = local_backend / "upload" / "parsed" / _DOC_ID
+    parsed.mkdir(parents=True)
+    (parsed / "content.md").write_text("# 内容", encoding="utf-8")
+    files = local_backend / "upload" / "files"
+    files.mkdir(parents=True)
+    original = files / f"{_DOC_ID}_a.pdf"
+    original.write_bytes(b"%PDF-1.4")
+
+    resp = client.delete(f"/api/documents/{_DOC_ID}")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+    assert not parsed.exists()
+    assert not original.exists()
+
+    assert client.delete(f"/api/documents/{_DOC_ID}").status_code == 404
+    assert client.delete("/api/documents/xyz").status_code == 422
+
+
+def test_delete_bid(client, local_backend):
+    bid_dir = local_backend / "upload" / "bids" / _SUPPLEMENT_BID
+    bid_dir.mkdir(parents=True)
+    (bid_dir / "bid.md").write_text("# 标题", encoding="utf-8")
+
+    resp = client.delete(f"/api/bids/{_SUPPLEMENT_BID}")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+    assert not bid_dir.exists()
+
+    assert client.delete(f"/api/bids/{_SUPPLEMENT_BID}").status_code == 404
+    assert client.delete("/api/bids/xyz").status_code == 422
+
+
+# ---- 章节级编辑、重写与锁定（P1-2）----
+
+_SECTION_BID = "0123456789abcdef-20261022-120000"
+
+
+@pytest.fixture
+def section_artifact(local_backend, monkeypatch):
+    """构造一份旧版产物（无 sections/），并隔离抽取结果与 Word 导出。"""
+    from src.bid_writer import sections as sections_module
+    from src.extraction.schema import TenderDocument
+
+    bids = local_backend / "upload" / "bids"
+    bid_dir = bids / _SECTION_BID
+    bid_dir.mkdir(parents=True)
+    outline = [
+        {
+            "id": "section_1",
+            "title": "施工组织设计",
+            "order": 1,
+            "strategy": "generate",
+            "target_words": 100,
+            "scoring_factors": [],
+            "requirements": "",
+            "retrieval_query": "施工组织设计",
+        }
+    ]
+    report = {
+        "doc_id": _DOC_ID,
+        "project_name": "示例项目",
+        "bidder": "测试公司",
+        "generated_at": "2026-10-22T12:00:00+08:00",
+        "total_sections": 1,
+        "total_words": 6,
+        "sections": [{"id": "section_1", "score_before": 80, "score_after": 85}],
+        "format_coverage": [],
+        "evaluation_coverage": [],
+        "placeholders": [],
+        "missing_profile_fields": [],
+        "warnings": [],
+    }
+    markdown = (
+        "# 示例项目\n\n**投标人：测试公司**\n**日期：2026年10月22日**\n\n---\n\n"
+        "## 目录\n1. 施工组织设计\n\n"
+        "## 施工组织设计\n\n原始正文\n"
+    )
+    (bid_dir / "bid.md").write_text(markdown, encoding="utf-8")
+    (bid_dir / "outline.json").write_text(
+        json.dumps(outline, ensure_ascii=False), encoding="utf-8"
+    )
+    (bid_dir / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False), encoding="utf-8"
+    )
+
+    monkeypatch.setattr(sections_module, "BIDS_DIR", bids)
+    monkeypatch.setattr(
+        sections_module,
+        "load_extraction",
+        lambda doc_id: TenderDocument(
+            doc_id=_DOC_ID,
+            doc_type="tender_file",
+            project_name="示例项目",
+            evaluation_factors=[],
+            bid_format_items=[],
+        ),
+    )
+    monkeypatch.setattr(
+        sections_module, "markdown_to_docx", lambda md, path: path.write_bytes(b"docx")
+    )
+    return bid_dir
+
+
+def test_list_bid_sections(client, section_artifact):
+    resp = client.get(f"/api/bids/{_SECTION_BID}/sections")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [item["id"] for item in data] == ["section_1"]
+    assert data[0]["locked"] is False
+    assert data[0]["word_count"] > 0
+
+
+def test_get_bid_section_detail(client, section_artifact):
+    resp = client.get(f"/api/bids/{_SECTION_BID}/sections/section_1")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "施工组织设计"
+    assert "原始正文" in body["markdown"]
+
+    assert client.get(f"/api/bids/{_SECTION_BID}/sections/nope").status_code == 404
+
+
+def test_save_bid_section_markdown(client, section_artifact):
+    resp = client.put(
+        f"/api/bids/{_SECTION_BID}/sections/section_1",
+        json={"markdown": "人工改写后的正文"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_words"] > 0
+    assert "人工改写后的正文" in (section_artifact / "bid.md").read_text(encoding="utf-8")
+
+    # 空请求体（markdown 与 locked 都未提供）应被拒绝
+    assert (
+        client.put(f"/api/bids/{_SECTION_BID}/sections/section_1", json={}).status_code
+        == 422
+    )
+
+
+def test_lock_bid_section(client, section_artifact):
+    resp = client.put(
+        f"/api/bids/{_SECTION_BID}/sections/section_1", json={"locked": True}
+    )
+    assert resp.status_code == 200
+    assert client.get(f"/api/bids/{_SECTION_BID}/sections").json()[0]["locked"] is True
+
+
+def test_download_bid_section(client, section_artifact):
+    resp = client.get(f"/api/bids/{_SECTION_BID}/sections/section_1/file")
+    assert resp.status_code == 200
+    assert "attachment" in resp.headers["content-disposition"]
+    assert "原始正文" in resp.text
+
+
+def test_rewrite_bid_sections(client, section_artifact, monkeypatch):
+    monkeypatch.setattr(
+        dispatch, "submit_section_rewrite", lambda bid_id, doc_id, ids: "job-rewrite"
+    )
+    resp = client.post(f"/api/bids/{_SECTION_BID}/sections/rewrite", json={"section_ids": ["section_1"]})
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["kind"] == "rewrite"
+    assert body["job_id"] == "job-rewrite"
+
+    assert (
+        client.post(
+            "/api/bids/0123456789abcdef-20261022-130000/sections/rewrite", json={}
+        ).status_code
+        == 404
+    )

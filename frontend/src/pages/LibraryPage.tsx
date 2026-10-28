@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
-import { describeError, getMarkdown, listDocuments } from '../api'
+import { deleteDocument, describeError, getMarkdown, listDocuments } from '../api'
 import type { DocumentSummary } from '../types'
 import { Badge, Banner, Button, Card, EmptyState, Modal, Spinner } from '../ui'
 
-export function LibraryPage({ onWrite }: { onWrite: (docId: string) => void }) {
+export function LibraryPage({
+  onWrite,
+  onChanged,
+}: {
+  onWrite: (docId: string) => void
+  onChanged?: () => void
+}) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
   const [previewDoc, setPreviewDoc] = useState<DocumentSummary | null>(null)
   const [previewText, setPreviewText] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -28,6 +35,22 @@ export function LibraryPage({ onWrite }: { onWrite: (docId: string) => void }) {
   useEffect(() => {
     load()
   }, [])
+
+  async function remove(doc: DocumentSummary) {
+    if (!window.confirm(`确认删除文档 ${doc.source_name || doc.doc_id}？解析结果与上传原件会一起删除。`)) {
+      return
+    }
+    setBusy(doc.doc_id)
+    try {
+      await deleteDocument(doc.doc_id)
+      await load()
+      onChanged?.()
+    } catch (e) {
+      setError(describeError(e))
+    } finally {
+      setBusy(null)
+    }
+  }
 
   async function openPreview(doc: DocumentSummary) {
     setPreviewDoc(doc)
@@ -90,6 +113,13 @@ export function LibraryPage({ onWrite }: { onWrite: (docId: string) => void }) {
                   </Button>
                   <Button onClick={() => onWrite(d.doc_id)} disabled={!d.has_extraction}>
                     去编写
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => remove(d)}
+                    disabled={busy === d.doc_id}
+                  >
+                    删除
                   </Button>
                 </div>
               </div>

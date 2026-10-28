@@ -23,6 +23,16 @@ class ParseAccepted(BaseModel):
     job_url: str
 
 
+class JobAccepted(BaseModel):
+    """任意任务被接受的响应；字段与 ParseAccepted 一致，前端可复用同一类型。"""
+
+    job_id: str
+    doc_id: str
+    kind: str
+    status: str
+    job_url: str
+
+
 class JobStatus(BaseModel):
     job_id: str
     kind: str
@@ -86,6 +96,40 @@ class TaskHistoryItem(BaseModel):
     error: str | None = None
     created_at: str | None = None
     finished_at: str | None = None
+
+
+class SectionInfo(BaseModel):
+    """章节列表项（P1-2）：锁定状态与统计信息。"""
+
+    id: str
+    title: str
+    order: int
+    strategy: str = ""
+    locked: bool = False
+    word_count: int = 0
+    placeholder_count: int = 0
+    score_before: int = 0
+    score_after: int = 0
+    revisions: int = 0
+
+
+class SectionDetail(SectionInfo):
+    """单章详情：列表项 + Markdown 正文。"""
+
+    markdown: str
+
+
+class SectionUpdate(BaseModel):
+    """保存单章：`markdown` 为空表示只改锁定状态。"""
+
+    markdown: str | None = None
+    locked: bool | None = None
+
+
+class SectionRewriteRequest(BaseModel):
+    """重写章节：`section_ids` 为空表示全部未锁定章节。"""
+
+    section_ids: list[str] | None = None
 
 
 class BidderProfileItem(BaseModel):

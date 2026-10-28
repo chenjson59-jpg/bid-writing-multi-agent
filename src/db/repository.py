@@ -216,6 +216,17 @@ async def list_tasks(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         return []
 
 
+async def get_task(job_id: str) -> dict[str, Any] | None:
+    """按 job_id 读任务记录（重试时据此还原原参数）。库不可用返回 None。"""
+    try:
+        async with get_session_factory()() as session:
+            task = await session.get(TaskHistory, job_id)
+            return _task_to_dict(task) if task is not None else None
+    except Exception as exc:  # noqa: BLE001 - 查询失败按不存在处理
+        logger.warning("任务记录查询失败: %s", exc)
+        return None
+
+
 async def list_profiles(limit: int = 100) -> list[dict[str, Any]]:
     """按录入倒序返回投标人资料。"""
     try:

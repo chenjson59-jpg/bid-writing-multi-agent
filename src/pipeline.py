@@ -313,6 +313,7 @@ def run_bid_writer(
     `profile` 为投标人资料字典，`options` 为编写参数字典，二者均可空；
     产物写入 `upload/bids/<doc_id>-<时间戳>/`。
     """
+    from dataclasses import asdict
     from datetime import datetime
 
     from src.bid_writer.agents import default_caller, plan_sections
@@ -374,6 +375,11 @@ def run_bid_writer(
         encoding="utf-8",
     )
 
+    # 章节正文独立落盘（P1-2）：编辑 / 重写 / 锁定都以此为事实来源
+    from src.bid_writer.sections import write_sections
+
+    write_sections(output_dir, drafts)
+
     if write_options.export_word:
         try:
             docx_path = output_dir / "bid.docx"
@@ -383,6 +389,7 @@ def run_bid_writer(
             report.warnings.append(f"Word 导出失败：{exc}")
 
     report.llm_usage = meter.summary()
+    report.write_options = asdict(write_options)
     report.output_dir = str(output_dir)
     report.markdown_path = str(markdown_path)
     report.outline_path = str(outline_path)
