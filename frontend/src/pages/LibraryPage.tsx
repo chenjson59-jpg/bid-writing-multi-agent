@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { deleteDocument, describeError, getMarkdown, listDocuments } from '../api'
-import type { DocumentSummary } from '../types'
+import type { DocumentSummary, ExtractionDetail } from '../types'
 import { Badge, Banner, Button, Card, EmptyState, Modal, Spinner } from '../ui'
+import { ExtractionEditor } from './ExtractionEditor'
 
 export function LibraryPage({
   onWrite,
@@ -19,6 +20,8 @@ export function LibraryPage({
   const [previewText, setPreviewText] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [editDoc, setEditDoc] = useState<DocumentSummary | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -84,6 +87,7 @@ export function LibraryPage({
       </div>
 
       {error && <Banner kind="error">{error}</Banner>}
+      {notice && <Banner kind="info">{notice}</Banner>}
 
       {loading ? (
         <Spinner />
@@ -104,12 +108,29 @@ export function LibraryPage({
                 </div>
                 <div className="flex items-center gap-2">
                   {d.has_extraction ? (
-                    <Badge tone="success">已抽取</Badge>
+                    <>
+                      <Badge tone="success">已抽取</Badge>
+                      {d.extraction_reviewed ? (
+                        <Badge>已核对</Badge>
+                      ) : (
+                        <Badge tone="warn">待核对</Badge>
+                      )}
+                    </>
                   ) : (
                     <Badge tone="warn">未抽取</Badge>
                   )}
                   <Button variant="secondary" onClick={() => openPreview(d)}>
                     预览
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setNotice(null)
+                      setEditDoc(d)
+                    }}
+                    disabled={!d.has_extraction}
+                  >
+                    抽取结果
                   </Button>
                   <Button onClick={() => onWrite(d.doc_id)} disabled={!d.has_extraction}>
                     去编写
@@ -144,6 +165,21 @@ export function LibraryPage({
           </pre>
         )}
       </Modal>
+
+      {editDoc && (
+        <ExtractionEditor
+          doc={editDoc}
+          onClose={() => setEditDoc(null)}
+          onSaved={(detail: ExtractionDetail) => {
+            setNotice(
+              `已保存抽取结果：评分因素 ${detail.evaluation_factors.length} 条，格式条目 ${detail.bid_format_items.length} 条`,
+            )
+            setEditDoc(null)
+            load()
+            onChanged?.()
+          }}
+        />
+      )}
     </div>
   )
 }

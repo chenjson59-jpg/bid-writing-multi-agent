@@ -111,7 +111,46 @@ export interface DocumentSummary {
   pages: number
   sections: number
   has_extraction: boolean
+  extraction_reviewed: boolean
   parsed_at: string | null
+}
+
+// 抽取结果人工校正（P1-10）
+export interface ExtractionFactor {
+  category: string
+  name: string
+  score: number | null
+  source_quote: string
+}
+
+export interface ExtractionFormatItem {
+  title: string
+  content: string
+}
+
+export interface ExtractionQualification {
+  category: string
+  requirement: string
+  source_quote: string
+  thresholds: string[]
+}
+
+export interface ExtractionDetail {
+  doc_id: string
+  doc_type: string
+  basic: Record<string, string>
+  evaluation_factors: ExtractionFactor[]
+  qualification_items: ExtractionQualification[]
+  bid_format_items: ExtractionFormatItem[]
+  extraction_meta: Record<string, unknown>
+  reviewed_at: string | null
+}
+
+export interface ExtractionUpdateBody {
+  basic: Record<string, string>
+  evaluation_factors: ExtractionFactor[]
+  qualification_items: ExtractionQualification[]
+  bid_format_items: ExtractionFormatItem[]
 }
 
 export interface BidHistoryItem {

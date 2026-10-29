@@ -279,6 +279,13 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
             {selectedDoc.doc_id} · {selectedDoc.pages} 页
           </p>
         )}
+        {selectedDoc && !selectedDoc.extraction_reviewed && (
+          <div className="mt-2">
+            <Banner kind="warn">
+              该文档抽取结果尚未人工核对，建议先在「文档库 → 抽取结果」核对评分因素与格式条目，再开始编写。
+            </Banner>
+          </div>
+        )}
       </Card>
 
       <Card title="投标人资料">

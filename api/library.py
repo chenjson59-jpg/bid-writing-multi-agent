@@ -8,7 +8,18 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 
-from api.schemas import BidHistoryItem, DocumentSummary
+from api.schemas import (
+    BidHistoryItem,
+    DocumentSummary,
+    ExtractionDetail,
+    ExtractionUpdate,
+)
+from src.extraction.schema import (
+    BASIC_SCALAR_KEYS,
+    EVALUATION_CATEGORIES,
+    QUALIFICATION_CATEGORIES,
+    normalize_category,
+)
 from src.pipeline import BIDS_DIR, PARSED_DIR
 
 router = APIRouter(prefix="/api")
@@ -39,6 +50,38 @@ def _mtime_iso(path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
 
 
+def _load_extraction_data(doc_id: str) -> dict:
+    """读回 `extraction.json`；格式非法按 422 返回，缺失按 404 返回。"""
+    if not _DOC_ID_RE.match(doc_id):
+        raise HTTPException(422, "doc_id 格式非法")
+    path = PARSED_DIR / doc_id / "extraction.json"
+    if not path.is_file():
+        raise HTTPException(404, "该文档没有结构化抽取结果")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise HTTPException(422, f"抽取结果损坏：{exc}") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(422, "抽取结果格式非法")
+    return data
+
+
+def _reviewed_at(data: dict) -> str | None:
+    meta = data.get("extraction_meta")
+    if isinstance(meta, dict):
+        value = meta.get("reviewed_at")
+        return str(value) if value else None
+    return None
+
+
+def _write_extraction_data(doc_id: str, data: dict) -> None:
+    """先写临时文件再替换，避免保存中断留下半份 JSON。"""
+    path = PARSED_DIR / doc_id / "extraction.json"
+    tmp = path.with_name("extraction.json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
 @router.get("/documents", response_model=list[DocumentSummary])
 def list_documents() -> list[DocumentSummary]:
     if not PARSED_DIR.is_dir():
@@ -61,10 +104,22 @@ def list_documents() -> list[DocumentSummary]:
                     pages=0,
                     sections=0,
                     has_extraction=False,
+                    extraction_reviewed=False,
                     parsed_at=_mtime_iso(d),
                 )
             )
             continue
+        has_extraction = (d / "extraction.json").is_file()
+        reviewed = False
+        if has_extraction:
+            try:
+                reviewed = bool(
+                    _reviewed_at(
+                        json.loads((d / "extraction.json").read_text(encoding="utf-8"))
+                    )
+                )
+            except (json.JSONDecodeError, OSError, TypeError):
+                reviewed = False
         items.append(
             DocumentSummary(
                 doc_id=d.name,
@@ -73,13 +128,62 @@ def list_documents() -> list[DocumentSummary]:
                 parser=manifest.get("parser", ""),
                 pages=manifest.get("pages", 0),
                 sections=len(manifest.get("sections", [])),
-                has_extraction=(d / "extraction.json").is_file(),
+                has_extraction=has_extraction,
+                extraction_reviewed=reviewed,
                 parsed_at=manifest.get("parsed_at"),
             )
         )
         if len(items) >= _MAX_DOCUMENTS:
             break
     return items
+
+
+@router.get("/documents/{doc_id}/extraction", response_model=ExtractionDetail)
+def get_extraction(doc_id: str) -> ExtractionDetail:
+    """抽取结果视图：供前端三张表编辑（P1-10）。"""
+    data = _load_extraction_data(doc_id)
+    return ExtractionDetail(
+        doc_id=doc_id,
+        doc_type=str(data.get("doc_type") or ""),
+        basic={key: str(data.get(key) or "") for key in BASIC_SCALAR_KEYS},
+        evaluation_factors=data.get("evaluation_factors") or [],
+        qualification_items=data.get("qualifications") or [],
+        bid_format_items=data.get("bid_format_items") or [],
+        extraction_meta=data.get("extraction_meta") or {},
+        reviewed_at=_reviewed_at(data),
+    )
+
+
+@router.put("/documents/{doc_id}/extraction", response_model=ExtractionDetail)
+def save_extraction(doc_id: str, body: ExtractionUpdate) -> ExtractionDetail:
+    """保存人工校正：覆盖基础字段与三张表，记录核对时间，其余抽取信息保留。"""
+    data = _load_extraction_data(doc_id)
+    basic = body.basic
+    for key in BASIC_SCALAR_KEYS:
+        data[key] = getattr(basic, key)
+    data["evaluation_factors"] = [
+        {
+            **factor.model_dump(),
+            "category": normalize_category(factor.category, EVALUATION_CATEGORIES),
+        }
+        for factor in body.evaluation_factors
+    ]
+    data["qualifications"] = [
+        {
+            **item.model_dump(),
+            "category": normalize_category(item.category, QUALIFICATION_CATEGORIES),
+        }
+        for item in body.qualification_items
+    ]
+    data["bid_format_items"] = [item.model_dump() for item in body.bid_format_items]
+    meta = data.get("extraction_meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["reviewed_at"] = datetime.now(UTC).isoformat()
+    meta["reviewed_by"] = "manual"
+    data["extraction_meta"] = meta
+    _write_extraction_data(doc_id, data)
+    return get_extraction(doc_id)
 
 
 @router.get("/documents/{doc_id}/markdown")

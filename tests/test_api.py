@@ -246,6 +246,107 @@ def test_markdown_not_found(client):
     assert resp.status_code == 404
 
 
+# ---- 抽取结果人工校正（P1-10）----
+
+_REVIEW_DOC = "0123456789abcdef"
+
+
+def _write_extraction(backend) -> None:
+    """写入一份可编辑的解析产物与 manifest，供文档库与抽取接口使用。"""
+    parsed = backend / "upload" / "parsed" / _REVIEW_DOC
+    parsed.mkdir(parents=True)
+    (parsed / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_name": "招标文件.pdf",
+                "doc_type": "招标文件",
+                "parser": "local",
+                "pages": 2,
+                "sections": [{"title": "第一章 投标邀请"}],
+                "parsed_at": "2026-10-22T00:00:00+00:00",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (parsed / "extraction.json").write_text(
+        json.dumps(
+            {
+                "project_name": "测试项目",
+                "tender_no": "TEST-001",
+                "evaluation_factors": [
+                    {"name": "投标报价", "category": "报价", "score": 30, "source_quote": ""}
+                ],
+                "qualifications": [],
+                "bid_format_items": [{"title": "投标函", "content": ""}],
+                "extraction_meta": {"model": "fake", "calls": 1},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_extraction_invalid_doc_id(client):
+    assert client.get("/api/documents/xyz/extraction").status_code == 422
+
+
+def test_extraction_not_found(client):
+    assert client.get(f"/api/documents/{_REVIEW_DOC}/extraction").status_code == 404
+
+
+def test_extraction_save_marks_reviewed(client, local_backend):
+    _write_extraction(local_backend)
+    detail = client.get(f"/api/documents/{_REVIEW_DOC}/extraction").json()
+    assert detail["reviewed_at"] is None
+    assert detail["basic"]["project_name"] == "测试项目"
+    assert client.get("/api/documents").json()[0]["extraction_reviewed"] is False
+
+    body = {
+        "basic": {"project_name": "测试项目（已核对）", "tender_no": "TEST-001"},
+        "evaluation_factors": [
+            {"category": "技术类", "name": " 技术方案 ", "score": 20, "source_quote": "第二章"}
+        ],
+        "qualification_items": [],
+        "bid_format_items": [{"title": "投标函", "content": ""}],
+    }
+    resp = client.put(f"/api/documents/{_REVIEW_DOC}/extraction", json=body)
+    assert resp.status_code == 200
+    saved = resp.json()
+    assert saved["reviewed_at"]
+    # 类别归一化 + 名称去空白
+    assert saved["evaluation_factors"][0]["category"] == "技术"
+    assert saved["evaluation_factors"][0]["name"] == "技术方案"
+    assert saved["basic"]["project_name"] == "测试项目（已核对）"
+    # 未编辑的抽取信息原样保留
+    assert saved["extraction_meta"]["model"] == "fake"
+    assert client.get("/api/documents").json()[0]["extraction_reviewed"] is True
+
+
+def test_extraction_rejects_empty_name(client, local_backend):
+    _write_extraction(local_backend)
+    body = {
+        "basic": {},
+        "evaluation_factors": [{"category": "技术", "name": "   ", "score": 10}],
+        "qualification_items": [],
+        "bid_format_items": [],
+    }
+    assert client.put(f"/api/documents/{_REVIEW_DOC}/extraction", json=body).status_code == 422
+
+
+def test_extraction_too_many_items(client, local_backend):
+    _write_extraction(local_backend)
+    body = {
+        "basic": {},
+        "evaluation_factors": [
+            {"category": "技术", "name": f"因素{i}", "score": 1} for i in range(201)
+        ],
+        "qualification_items": [],
+        "bid_format_items": [],
+    }
+    assert client.put(f"/api/documents/{_REVIEW_DOC}/extraction", json=body).status_code == 422
+
+
 # ---- 投标编写 ----
 
 def test_bids_requires_extraction(client):

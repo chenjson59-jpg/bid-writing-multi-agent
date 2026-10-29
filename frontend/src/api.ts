@@ -6,6 +6,8 @@ import type {
   BidderProfileItem,
   BidderProfileUpsert,
   DocumentSummary,
+  ExtractionDetail,
+  ExtractionUpdateBody,
   HealthInfo,
   JobView,
   ParseAccepted,
@@ -105,6 +107,23 @@ export async function getMarkdown(docId: string): Promise<string> {
     throw new ApiError(resp.status, await readError(resp))
   }
   return resp.text()
+}
+
+// ---- 抽取结果人工校正（P1-10）----
+
+export function getExtraction(docId: string): Promise<ExtractionDetail> {
+  return request(`/api/documents/${docId}/extraction`)
+}
+
+export function saveExtraction(
+  docId: string,
+  body: ExtractionUpdateBody,
+): Promise<ExtractionDetail> {
+  return request(`/api/documents/${docId}/extraction`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 export function uploadParse(

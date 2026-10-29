@@ -118,8 +118,29 @@ def test_parse_extract_bid_and_download(client, monkeypatch):
     documents = client.get("/api/documents").json()
     assert documents[0]["doc_id"] == doc_id
     assert documents[0]["has_extraction"] is True
+    assert documents[0]["extraction_reviewed"] is False
 
-    # 2. 编写 → 产物落盘
+    # 2. 人工校正抽取结果（P1-10）：追加一个技术类评分因素
+    detail = client.get(f"/api/documents/{doc_id}/extraction").json()
+    assert detail["reviewed_at"] is None
+    resp = client.put(
+        f"/api/documents/{doc_id}/extraction",
+        json={
+            "basic": detail["basic"],
+            "evaluation_factors": [
+                {"category": "报价", "name": "投标报价", "score": 30, "source_quote": ""},
+                {"category": "技术", "name": "技术方案", "score": 20, "source_quote": "第二章"},
+            ],
+            "qualification_items": detail["qualification_items"],
+            "bid_format_items": detail["bid_format_items"],
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reviewed_at"]
+    assert len(resp.json()["evaluation_factors"]) == 2
+    assert client.get("/api/documents").json()[0]["extraction_reviewed"] is True
+
+    # 3. 编写 → 产物落盘（覆盖统计应反映校正后的评分因素）
     resp = client.post(
         "/api/bids",
         json={"doc_id": doc_id, "profile": {"company_name": "测试公司"}},
@@ -131,13 +152,19 @@ def test_parse_extract_bid_and_download(client, monkeypatch):
     assert bid_job["bid"]["project_name"] == "测试项目"
     assert bid_job["bid"]["bidder"] == "测试公司"
 
-    # 3. 产物下载
+    # 4. 产物下载
     bid_id = client.get("/api/bids").json()[0]["bid_id"]
     markdown = client.get(f"/api/bids/{bid_id}/files/bid.md")
     assert markdown.status_code == 200
     assert "完全响应" in markdown.text
     assert client.get(f"/api/bids/{bid_id}/files/bid.docx").status_code == 200
     assert client.get(f"/api/bids/{bid_id}/files/report.json").status_code == 200
+
+    report = client.get(f"/api/bids/{bid_id}/files/report.json").json()
+    coverage = {c["name"]: c["covered"] for c in report["evaluation_coverage"]}
+    assert coverage == {"投标报价": True, "技术方案": False}
+    assert "评分因素「技术方案」未覆盖" in report["warnings"]
+
     assert (
         client.get(
             f"/api/bids/{bid_id}/files/bid.md", params={"download": "true"}

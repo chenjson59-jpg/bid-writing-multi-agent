@@ -108,7 +108,19 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   )
 }
 
-export function Modal({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  size = 'md',
+}: {
+  open: boolean
+  title: string
+  onClose: () => void
+  children: ReactNode
+  size?: 'md' | 'lg'
+}) {
   const restoreRef = useRef<Element | null>(null)
 
   useEffect(() => {
@@ -131,7 +143,7 @@ export function Modal({ open, title, onClose, children }: { open: boolean; title
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-lg rounded-lg border border-slate-700 bg-slate-900 p-5"
+        className={`w-full ${size === 'lg' ? 'max-w-4xl' : 'max-w-lg'} rounded-lg border border-slate-700 bg-slate-900 p-5`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
