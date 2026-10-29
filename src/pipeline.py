@@ -387,7 +387,13 @@ def run_bid_writer(
     if write_options.export_word:
         try:
             docx_path = output_dir / "bid.docx"
-            markdown_to_docx(markdown, docx_path)
+            markdown_to_docx(
+                markdown,
+                docx_path,
+                project_name=tender.project_name,
+                bidder=profile_obj.company_name,
+                date_text=now.strftime("%Y年%m月%d日"),
+            )
             report.docx_path = str(docx_path)
         except Exception as exc:  # noqa: BLE001 - Word 导出失败不阻断 Markdown 与报告
             report.warnings.append(f"Word 导出失败：{exc}")

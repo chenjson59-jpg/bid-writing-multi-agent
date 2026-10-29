@@ -154,7 +154,13 @@ def main() -> None:
     (output_dir / "bid.md").write_text(markdown, encoding="utf-8")
     _write_json(output_dir / "outline.json", [d.plan.to_dict() for d in drafts])
     try:
-        markdown_to_docx(markdown, output_dir / "bid.docx")
+        markdown_to_docx(
+            markdown,
+            output_dir / "bid.docx",
+            project_name=tender.project_name,
+            bidder=profile.company_name,
+            date_text=now.strftime("%Y年%m月%d日"),
+        )
         report.docx_path = str(output_dir / "bid.docx")
     except Exception as exc:  # noqa: BLE001 - Word 导出失败不阻断演示
         report.warnings.append(f"Word 导出失败：{exc}")
