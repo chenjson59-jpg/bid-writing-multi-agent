@@ -120,7 +120,9 @@ uv run python -m api
 | POST | `/api/jobs/{job_id}/retry` | 仅失败任务可重试，参数取自任务历史，返回新 `job_id`（**202**） |
 | GET | `/api/jobs/{job_id}/trace` | 任务轨迹：各阶段耗时、失败阶段与异常类型（无日志返回 **404**） |
 | GET | `/api/metrics` | 运行指标：终态分布、任务类型分布、平均耗时、最近失败（近 500 个任务） |
-| GET | `/api/documents` | 已解析文档列表（读取 `upload/parsed`） |
+| GET | `/api/documents` | 已解析文档列表（读取 `upload/parsed`），含 `extraction_reviewed` 核对状态 |
+| GET | `/api/documents/{doc_id}/extraction` | 抽取结果视图：基础字段 + 评分因素 / 资格条件 / 格式条目三张表；无结果返回 **404** |
+| PUT | `/api/documents/{doc_id}/extraction` | 保存人工校正并标记「已核对」（`reviewed_at`），其余抽取信息保留；非法条目 **422** |
 | DELETE | `/api/documents/{doc_id}` | 删除解析结果与上传原件；不存在返回 **404** |
 | GET | `/api/bids` | 历史投标产物列表（读取 `upload/bids/*/report.json`） |
 | GET | `/api/bids/{bid_id}` | 单份产物摘要（不存在返回 **404**） |
@@ -159,6 +161,10 @@ Celery 后端的任务状态存放在 Redis，重启 API 不丢失；`local` 后
 
 `POST /api/bids` 的 `doc_id` 必须已有 `upload/parsed/<doc_id>/extraction.json`
 （先调用 `/api/parse?extract=true`），否则返回 **404**。
+
+抽取结果可在前端「文档库 → 抽取结果」中人工校正评分因素、格式条目与资格条件，
+保存后写入 `extraction_meta.reviewed_at`；编写页对未核对文档会给出提示，
+校正后的因素名称直接进入大纲映射与覆盖统计。
 
 ```bash
 curl -X POST "http://127.0.0.1:8001/api/bids" \
@@ -376,7 +382,7 @@ outline.json            章节计划
 sections/index.json     章节索引（顺序、标题、锁定状态、评审分数、生成计划）
 sections/<序号>-<id>.md 单章正文（编辑、重写、锁定的操作对象）
 bid.md                  合并后的完整投标文件
-bid.docx                Word 导出
+bid.docx                Word 导出（封面 + 自动目录 + 页眉页码）
 report.json             评分覆盖、章节得分、占位符、缺失资料
 ```
 
@@ -447,13 +453,17 @@ $env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
 > 令牌会编译进前端 JS，防的是陌生脚本直接打 API，不是强保密手段；
 > 高安全场景应改用反向代理 Basic Auth 或防火墙 IP 白名单。
 
+前端代码有改动（新增页面、修复交互）时必须重新执行上面的构建，并把整个 `dist`
+重新上传覆盖。只更新 `assets/` 而漏掉 `index.html`，浏览器会继续加载旧入口。
+
 ### 2. 服务器准备
 
 ```bash
 docker ps                                      # 报 permission denied 则走文末回退方案
 ss -tln | grep -E ':(8200|6382)'               # 有输出说明端口被占，换端口
-python3 -V                                     # 需 ≥3.11
-curl -sI https://ark.cn-beijing.volces.com | head -1   # 必须能访问火山方舟
+python3 -V                                     # 需 ≥3.12（pyproject 要求，3.11 会在 uv sync 失败）
+# 连通性：只要拿到 HTTP 状态码就算通。401 是方舟网关要求鉴权（根路径未带密钥），属正常
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 https://ark.cn-beijing.volces.com  # 期望 401/404，不是空或超时
 
 cd ~/group_2
 git clone git@github.com:chenjson59-jpg/bid-writing-multi-agent.git bidding && cd bidding
@@ -461,8 +471,44 @@ curl -LsSf https://astral.sh/uv/install.sh | sh && source ~/.local/bin/env
 uv sync
 ```
 
-仓库为私有时需在服务器配置 SSH key 或改用 `https://<token>@github.com/...` 形式。
-然后上传构建产物与已有数据（本地执行；后两者可选，省去重新解析的 LLM 费用）：
+仓库是私有的，服务器直接 `git clone` 会报 `Permission denied (publickey)`——那说明服务器
+没有配 GitHub 的 SSH 私钥（首次提示 `Are you sure you want to continue connecting?` 只是
+确认主机指纹，与权限无关）。三种取代码的方式任选其一：
+
+| 方式 | 适用 | 操作 |
+|---|---|---|
+| 本地打包上传（推荐） | 服务器无 GitHub 凭据、或本地有未提交改动 | 见下方 `tar` + `scp` 命令 |
+| 部署密钥 | 需要在服务器上 `git pull` 长期更新 | `ssh-keygen -t ed25519 -f ~/.ssh/bidding -N ""`，把 `~/.ssh/bidding.pub` 加到仓库 **Settings → Deploy keys**（只读），再 `GIT_SSH_COMMAND='ssh -i ~/.ssh/bidding' git clone ...` |
+| HTTPS + PAT | 临时拉取 | `git clone https://github.com/chenjson59-jpg/bid-writing-multi-agent.git`，用户名填 GitHub 账号，密码填 Personal Access Token（`repo` 读权限） |
+
+> **注意未提交改动**：`git clone` 只拉已提交的内容。本地若有尚未提交的改动（例如新增页面），
+> 服务器上的后端与本地构建出的前端就会不一致，表现为新页面报 404 或功能缺失。
+> 这种情况必须用打包上传，或先提交再 clone。
+>
+> 不要把 PAT 写进 clone 的 URL（会留在 shell 历史与 `.git/config`），也不要把私钥贴到聊天或截图里。
+>
+> PAT 的生成位置：GitHub 右上头像 → **Settings → Developer settings → Personal access tokens**。
+> 选 Tokens (classic) 勾 `repo`；或选 Fine-grained tokens，仓库访问只选该仓库、权限给
+> **Contents: Read-only**。令牌只在生成后显示一次，之后无法再查看，丢了只能重新生成。
+
+本地打包上传（在仓库根目录执行，排除虚拟环境、依赖与运行时数据）：
+
+```powershell
+tar -czf bidding-src.tar.gz --exclude=.venv --exclude=node_modules `
+  --exclude=frontend/node_modules --exclude=upload --exclude=chroma_db `
+  --exclude=logs --exclude=.env .
+scp bidding-src.tar.gz user@IP:~/group_2/CJS/
+```
+
+服务器上解包后再补齐依赖（`uv sync` 会按 Linux 平台重建 `.venv`，不要上传 Windows 的 `.venv`）：
+
+```bash
+cd ~/group_2/CJS && mkdir -p bidding && tar -xzf bidding-src.tar.gz -C bidding && cd bidding
+curl -LsSf https://astral.sh/uv/install.sh | sh && source ~/.local/bin/env
+uv sync
+```
+
+最后上传构建产物与已有数据（本地执行；后两者可选，省去重新解析的 LLM 费用）：
 
 ```powershell
 scp -r frontend\dist user@IP:~/group_2/bidding/frontend/
@@ -499,7 +545,21 @@ CELERY_BROKER_URL=redis://:Redis密码@127.0.0.1:6382/0
 CELERY_RESULT_BACKEND=redis://:Redis密码@127.0.0.1:6382/1
 CELERY_WORKER_POOL=prefork                      # Linux 可用 prefork；Windows 必须 solo
 DATABASE_URL=                                   # 留空则不启用 PostgreSQL（任务历史不持久化）
+LOG_DIR=./logs                                  # 任务 JSONL 日志目录，trace 与 metrics 依赖它
+DATA_RETENTION_DAYS=30                          # 0 表示不自动清理，配合 scripts/cleanup.py
 ```
+
+**三个外部密钥必须填，否则解析、抽取、编写都会失败**（`.env.example` 里默认全部为空）：
+
+| 键 | 缺失后果 | 获取地址 |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | 抽取与投标正文生成全部失败 | <https://console.volcengine.com/ark>（默认走火山方舟 OpenAI 兼容端点） |
+| `EMBEDDING_API_KEY` | 无法建立检索索引，编写时检索为空、质量下降 | 同上 |
+| `MINERU_API_KEY` | 云端解析不可用，自动回退 PyMuPDF 本地解析 | <https://mineru.net/apiManage/token>（有效期 90 天） |
+
+若把 `DEEPSEEK_BASE_URL` 改回 `https://api.deepseek.com`，第 2 步的连通性检查需要
+同时放通该域名。另外确认 `upload/`、`chroma_db/`、`logs/` 三个目录存在且进程可写
+（它们都按仓库根目录锚定，不依赖当前工作目录）。
 
 ### 5. 启动（tmux）
 
@@ -511,14 +571,30 @@ uv run celery -A src.celery_app worker --loglevel=info
 # Ctrl+B d 脱离会话；tmux attach -t bidding 重新进入
 ```
 
+- **代码更新后 API 和 worker 都要重启**：worker 只在启动时注册任务，漏重启会出现
+  「接口返回 202，任务一直 pending」。
+- Chroma 的客户端是**进程内单例**，prefork 的多个子进程会各自持有连接、同时写同一个
+  索引目录可能触发租户错误。单机部署建议 `celery ... --concurrency=1`，或直接
+  `--pool=solo`（与本机一致，最稳）。
+
 ### 6. 验证
 
 ```bash
-curl localhost:8200/api/health        # {"status":"ok","broker_ok":true}
+curl localhost:8200/api/health        # {"status":"ok","broker_ok":true,"worker_ok":true}
 curl localhost:8200/api/documents     # 401（令牌生效）
 curl -H 'X-API-Token: 自定义复杂令牌' localhost:8200/api/documents   # 200
 curl -s localhost:8200/ | head -1     # <!doctype html>
 ```
+
+`worker_ok` 在 worker 刚启动的十几秒内可能短暂为 `false`，属正常；持续 `false`
+说明 worker 没起或连不上 Redis。密钥是否可用用一次真实探测确认（会发起一次嵌入调用）：
+
+```bash
+uv run python -m src.cli doctor --probe-embeddings   # 输出维度 2048 才算嵌入配置正确
+```
+
+浏览器打开后建议再手工确认两条前端链路：「文档库 → 抽取结果」能编辑保存并显示
+已核对徽章，「编写标书」能提交并轮询到产物。
 
 浏览器访问 `http://服务器IP:8200`。打不开说明防火墙未放行 8200，可联系管理员开放，
 或临时用 `ssh -L 8200:127.0.0.1:8200 user@IP` 建隧道后访问 `http://localhost:8200`。
@@ -573,8 +649,9 @@ uv run pytest -k "chunk or toc"
 - 只有单一共享 `API_TOKEN`，无登录、无多用户与权限隔离；下载接口支持 `?token=`，会进访问日志。
 - 取消任务只是不再接收结果，不保证中断已发出的模型调用；重写按章并发缺失，
   长产物批量重写仍是串行执行。
-- 章节编辑是纯文本替换，没有富文本与版本回滚（每次保存都会覆盖 `sections/` 内正文）；
-  Word 仍无封面、目录与页码。
+- 章节编辑是纯文本替换，没有富文本与版本回滚（每次保存都会覆盖 `sections/` 内正文）。
+- `bid.docx` 带封面、自动目录域、页眉与页码，但目录由 Word 打开时更新域生成
+  （设置 `updateFields`，WPS / Word 均会提示更新）；Markdown 仍是无版式正文。
 - 投标文件生成为草稿：占位符必须补全，公司信息与报价必须人工核对；
   完整跑一遍会发起较多 LLM 调用，开发时可用 `--max-sections` 控制规模。
 
