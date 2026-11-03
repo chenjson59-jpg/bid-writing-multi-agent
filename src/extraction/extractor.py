@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import time
@@ -15,7 +16,7 @@ from typing import Any, Protocol
 
 from src.config import settings
 from src.errors import ExtractError
-from src.extraction.prompts import PROMPT_VERSION, build_prompt
+from src.extraction.prompts import PROMPT_VERSION, build_prompt, focus_for_chapter
 from src.extraction.schema import (
     TenderDocument,
     normalize_chapter_extraction,
@@ -196,12 +197,34 @@ def _call_and_parse(
     return [normalized]
 
 
+def _is_empty_for_focus(partial: dict[str, Any], focus: str) -> bool:
+    """判断单元结果是否为空：评标重点只看 evaluation 块，其余看全字段。"""
+    if focus == "evaluation":
+        block = partial.get("evaluation", {})
+        return not any(
+            block.get(key) for key in ("factors", "preliminary_review", "score_table")
+        )
+    return not any(
+        value
+        for block in partial.values()
+        if isinstance(block, dict)
+        for value in block.values()
+    )
+
+
 def _extract_unit(
     unit: Unit, caller: ModelCaller, stats: ExtractStats, depth: int = 0
 ) -> list[dict[str, Any]]:
-    """抽取单个单元，输出被截断时二分递归重试（A14）。"""
+    """抽取单个单元，输出被截断时二分递归重试（A14）。
+
+    模型偶发返回全空结果时重试一次，避免整章字段丢失。
+    """
     try:
-        return _call_and_parse(unit, caller, stats)
+        result = _call_and_parse(unit, caller, stats)
+        focus = focus_for_chapter(unit.path, unit.title)
+        if result and unit.text.strip() and _is_empty_for_focus(result[0], focus):
+            result = _call_and_parse(unit, caller, stats)
+        return result
     except ExtractError as exc:
         if (
             "截断" in str(exc)
@@ -272,29 +295,127 @@ def merge_partials(partials: list[dict[str, Any]]) -> dict[str, Any]:
     return merged
 
 
-def _ensure_bid_format_items(
+# 投标格式模板标题：带「实质性格式」后缀的标题，或独立命名的模板/表格
+_FORMAT_SUFFIX_RE = re.compile(
+    r"^.{2,40}（(?:非)?实质性格式）$"
+)
+_FORMAT_NAME_RE = re.compile(
+    r"^(?:附：)?(?:[一二三四五六七八九十]+、)?(?:\d+(?:-\d+)*[、.\s]+)?"
+    r"(?:投标书|授权委托书|开标一览表|投标分项报价表|合同条款偏离表|"
+    r"采购需求偏离表|关于符合本国产品标准的声明函|产品成本占比承诺函|"
+    r"中小企业声明函（货物）格式|残疾人福利性单位声明函格式|"
+    r"投标人资格声明书|投标人本项目主要管理、服务人员情况表|"
+    r"投标人类似项目业绩一览表)$"
+)
+_FORMAT_ATTACH_RE = re.compile(r"^附：[^，。；：]{2,20}(?:身份证明|证明文件)$")
+# 编号行且以格式关键词结尾（章节级格式分组，如「7 本国产品标准证明文件（如有）」）
+_FORMAT_GROUP_RE = re.compile(
+    r"^(?:附：)?(?:[一二三四五六七八九十]+、|\d+(?:-\d+)*[、.\s]+)"
+    r"[^，。；：]{2,55}"
+    r"(?:格式|模板|表格|声明函|承诺函|证明文件|其他材料|封面)"
+    r"(?:（如有）|（格式自拟）|（如[^）]*）)?$"
+)
+# 章节级分组标题（如「一、资格证明文件格式」），不是具体投标模板
+_GROUP_HEADING_RE = re.compile(r"^[一二三四五六七八九十]+、.{0,20}格式$")
+
+
+def _format_title_key(title: str) -> str:
+    """模板标题归一化键：去掉编号、「附：」与「格式」后缀，用于去重。"""
+    key = title.strip()
+    key = re.sub(r"^附：", "", key)
+    key = re.sub(r"^(?:[一二三四五六七八九十]+、|\d+(?:-\d+)*[、.\s]+)", "", key)
+    key = re.sub(r"（(?:非)?实质性格式）$", "", key)
+    key = re.sub(r"格式$", "", key)
+    return key.strip()
+
+
+def _scan_bid_format_titles(text: str) -> list[dict[str, Any]]:
+    """从「投标文件格式」章节正文扫描独立模板标题。
+
+    模型对长章节常只概括出 1 条，这里按模板标题行确定性补齐，
+    保证格式条目与原文模板数量一致。
+    """
+    titles: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or len(line) > 60 or _GROUP_HEADING_RE.match(line):
+            continue
+        matched = (
+            _FORMAT_SUFFIX_RE.match(line)
+            or _FORMAT_NAME_RE.match(line)
+            or _FORMAT_ATTACH_RE.match(line)
+        )
+        if not matched:
+            matched = _FORMAT_GROUP_RE.match(line) is not None
+        if not matched:
+            continue
+        key = _format_title_key(line)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        titles.append({"title": line})
+    return titles
+
+
+def _drop_misplaced_bid_format(
     partials: list[dict[str, Any]], path: list[str], title: str
 ) -> list[dict[str, Any]]:
-    """投标格式兜底（核心算法 6.8）：空白模板按章节标题补格式条目。
+    """非投标格式章节中误填的 `bid_format.items` 清空，避免资格条款变成格式章节。"""
+    breadcrumb = " ".join([*path, title])
+    if focus_for_chapter(path, title) == "bid_format" or "投标文件格式" in breadcrumb:
+        return partials
+    for partial in partials:
+        block = partial.get("bid_format")
+        if isinstance(block, dict) and block.get("items"):
+            block["items"] = []
+    return partials
 
-    条件：章节路径含「投标文件格式」、标题不以「第八章」开头、且当前单元
-    所有结果都没有 `bid_format.items`。
 
-    返回新列表（深拷贝首个元素），不改动传入对象。
+def _ensure_bid_format_items(
+    partials: list[dict[str, Any]], path: list[str], title: str, text: str = ""
+) -> list[dict[str, Any]]:
+    """投标格式补齐（核心算法 6.8）：空白模板按标题兜底，再从正文扫描模板。
+
+    条件：章节路径含「投标文件格式」。返回新列表（深拷贝首个元素），
+    不改动传入对象。
     """
     if "投标文件格式" not in " ".join([*path, title]):
         return partials
-    if title.startswith("第八章"):
-        return partials
-    if any(p.get("bid_format", {}).get("items") for p in partials):
-        return partials
+
+    scanned = _scan_bid_format_titles(text)
     if not partials:
-        return partials
+        return [{"bid_format": {"items": scanned}}] if scanned else partials
 
     result = copy.deepcopy(partials)
-    result[0].setdefault("bid_format", {}).setdefault("items", [])
-    result[0]["bid_format"]["items"] = [{"title": title}]
+    items = result[0].setdefault("bid_format", {}).setdefault("items", [])
+    seen = {
+        _format_title_key(item.get("title", ""))
+        for item in items
+        if isinstance(item, dict) and item.get("title")
+    }
+    for entry in scanned:
+        key = _format_title_key(entry["title"])
+        if key and key not in seen:
+            items.append(entry)
+            seen.add(key)
+    if not items and not title.startswith("第八章"):
+        items.append({"title": title})
     return result
+
+
+_BUDGET_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(万元|元)")
+
+
+def _normalize_budget(value: Any) -> str:
+    """预算金额归一：从「项目预算金额：300 万元、最高限价：300 万元」取「300万元」。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = _BUDGET_RE.search(text)
+    if not match:
+        return text
+    return f"{match.group(1)}{match.group(2)}"
 
 
 def _flatten(merged: dict[str, Any]) -> dict[str, Any]:
@@ -305,10 +426,11 @@ def _flatten(merged: dict[str, Any]) -> dict[str, Any]:
     bid_format = merged.get("bid_format", {})
     contract = merged.get("contract", {})
     tech = merged.get("tech", {})
+    service_spec = merged.get("service_spec", {})
     return {
         "project_name": basic.get("project_name", ""),
         "tender_no": basic.get("tender_no", ""),
-        "budget_amount": basic.get("budget_amount", ""),
+        "budget_amount": _normalize_budget(basic.get("budget_amount", "")),
         "bid_deadline": basic.get("bid_deadline", ""),
         "bid_open_place": basic.get("bid_open_place", ""),
         "evaluation_factors": evaluation.get("factors", []),
@@ -318,6 +440,7 @@ def _flatten(merged: dict[str, Any]) -> dict[str, Any]:
         "bid_format_items": bid_format.get("items", []),
         "contract_highlights": contract.get("highlights", []),
         "technical_requirements": tech.get("requirements", []),
+        "service_requirements": service_spec.get("requirements", []),
     }
 
 
@@ -359,31 +482,43 @@ def ground_check(doc: dict[str, Any], full_text: str) -> list[str]:
 # 编排：缓存 + 遍历 + 合并 + 核对 + 落盘
 # ---------------------------------------------------------------------------
 
+def _content_sha256(doc: ParsedDocument) -> str:
+    """正文内容哈希：正文变化必须使抽取缓存失效。"""
+    return hashlib.sha256(_full_text(doc).encode("utf-8")).hexdigest()
+
+
 def _cache_tag(doc: ParsedDocument) -> str:
-    """单元缓存标签：解析器 + 提示词版本（A13 缓存失效）。"""
-    return f"{doc.parser}|{PROMPT_VERSION}"
+    """单元缓存标签：解析器 + 提示词版本 + 正文哈希（A13 缓存失效）。"""
+    return f"{doc.parser}|{PROMPT_VERSION}|{_content_sha256(doc)[:16]}"
 
 
-def _prepare_cache(parts_dir: Path, doc: ParsedDocument) -> None:
-    """准备单元缓存目录，标签过期时清空旧缓存。"""
+def _prepare_cache(parts_dir: Path, doc: ParsedDocument, force: bool = False) -> None:
+    """准备单元缓存目录，标签过期或强制重跑时清空旧缓存。"""
     parts_dir.mkdir(parents=True, exist_ok=True)
     tag_path = parts_dir / "cache_tag.txt"
     tag = _cache_tag(doc)
-    if tag_path.exists() and tag_path.read_text(encoding="utf-8") != tag:
+    stale = tag_path.exists() and tag_path.read_text(encoding="utf-8") != tag
+    if force or stale:
         for f in parts_dir.glob("*.json"):
             f.unlink()
     tag_path.write_text(tag, encoding="utf-8")
 
 
 def _load_cached_extraction(output_dir: Path, doc: ParsedDocument) -> TenderDocument | None:
-    """整篇缓存复用（A13.6.10.3）：解析器与提示词版本一致才复用。"""
+    """整篇缓存复用（A13.6.10.3）：解析器、提示词版本与正文哈希一致才复用。"""
     path = output_dir / "extraction.json"
     if not path.exists():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
     meta = data.get("extraction_meta", {})
-    if meta.get("parser") == doc.parser and meta.get("prompt_version") == PROMPT_VERSION:
-        return TenderDocument(**{k: v for k, v in data.items()})
+    if (
+        meta.get("parser") == doc.parser
+        and meta.get("prompt_version") == PROMPT_VERSION
+        and meta.get("content_sha256") == _content_sha256(doc)
+    ):
+        document = TenderDocument(**{k: v for k, v in data.items()})
+        document.extraction_meta["cache_hit"] = True
+        return document
     return None
 
 
@@ -421,7 +556,7 @@ def run_extraction(
 
     units = build_units(doc.sections, doc.toc, doc.markdown)
     parts_dir = output_dir / "extraction_parts"
-    _prepare_cache(parts_dir, doc)
+    _prepare_cache(parts_dir, doc, force=force)
 
     start = time.monotonic()
     stats = ExtractStats()
@@ -439,7 +574,8 @@ def run_extraction(
 
         try:
             result = _extract_unit(unit, caller, stats)
-            result = _ensure_bid_format_items(result, unit.path, unit.title)
+            result = _drop_misplaced_bid_format(result, unit.path, unit.title)
+            result = _ensure_bid_format_items(result, unit.path, unit.title, unit.text)
             partials.extend(result)
             cache_path.write_text(
                 json.dumps(result, ensure_ascii=False), encoding="utf-8"
@@ -462,6 +598,8 @@ def run_extraction(
             "model": settings.deepseek_model,
             "prompt_version": PROMPT_VERSION,
             "parser": doc.parser,
+            "content_sha256": _content_sha256(doc),
+            "cache_hit": False,
             "elapsed_seconds": round(time.monotonic() - start, 2),
             "calls": stats.calls,
             "json_mode_used": stats.json_mode_used,

@@ -89,10 +89,20 @@ export function ProgressBar({ percent }: { percent: number }) {
   )
 }
 
-export function Field({ label, children, error }: { label: string; children: ReactNode; error?: string }) {
+export function Field({
+  label,
+  children,
+  error,
+  labelClass = 'text-slate-400',
+}: {
+  label: string
+  children: ReactNode
+  error?: string
+  labelClass?: string
+}) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs text-slate-400">{label}</span>
+      <span className={`mb-1 block text-xs ${labelClass}`}>{label}</span>
       {children}
       {error && <span className="mt-1 block text-xs text-rose-400">{error}</span>}
     </label>

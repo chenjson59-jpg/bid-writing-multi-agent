@@ -321,7 +321,8 @@ def run_bid_writer(
     from src.bid_writer.assembly import assemble_markdown, build_report
     from src.bid_writer.docx_export import markdown_to_docx
     from src.bid_writer.graph import run_write_pipeline
-    from src.bid_writer.schema import BidderProfile, WriteOptions
+    from src.bid_writer.profile_schema import infer_profile_schema
+    from src.bid_writer.schema import BidderProfile, PROFILE_FIELD_LABELS, WriteOptions
     from src.bid_writer.usage import default_meter
     from src.vectorstore.ingest import collection_name
     from src.vectorstore.retrieval import ChromaRetriever
@@ -329,6 +330,11 @@ def run_bid_writer(
     profile_obj = BidderProfile.from_dict(profile)
     write_options = WriteOptions.from_dict(options)
     tender = load_extraction(doc_id)
+
+    # ① 从抽取结果推断 schema（required/recommended/optional）
+    #    后端 bid 任务自动拉 schema，不需要前端预先传——前端的 schema 只是用来控制表单显示
+    tender_dict = tender.to_dict() if hasattr(tender, "to_dict") else dict(tender)
+    schema = infer_profile_schema(tender_dict, PROFILE_FIELD_LABELS)
 
     meter = default_meter()
     caller = meter.wrap(caller or default_caller())
@@ -339,6 +345,7 @@ def run_bid_writer(
         target_words=write_options.target_words,
         max_sections=write_options.max_sections,
         caller=caller,
+        schema=schema,
     )
 
     retriever = ChromaRetriever(
@@ -353,6 +360,7 @@ def run_bid_writer(
         retriever.search,
         caller,
         max_concurrency=settings.bid_writer_max_concurrency,
+        schema=schema,
     )
 
     now = datetime.now()
@@ -366,6 +374,7 @@ def run_bid_writer(
     report = build_report(
         doc_id, tender.project_name, profile_obj.company_name, drafts,
         tender, profile_obj, now,
+        schema=schema,
     )
 
     output_dir = BIDS_DIR / f"{doc_id}-{now.strftime('%Y%m%d-%H%M%S')}"

@@ -6,6 +6,7 @@ from src.parsing.toc import (
     compose_sections,
     looks_like_toc_page,
     read_toc,
+    reconstruct_toc,
     section_number,
     subtree_range,
     subtree_text,
@@ -86,6 +87,31 @@ def test_looks_like_toc_page():
 
     normal = "本项目采购内容如下\n具体见正文说明\n无引导点内容"
     assert looks_like_toc_page(normal) is False
+
+
+def test_reconstruct_toc_from_toc_page():
+    pages = {
+        1: "封面",
+        2: (
+            "目录\n"
+            "第一章\n投标邀请.........................2\n"
+            "第二章\n投标人须知.......................5\n"
+        ),
+        3: "第一章\n投标邀请\n一、项目基本情况",
+        6: "第二章\n投标人须知\n一、总则",
+    }
+    entries = reconstruct_toc(pages, page_count=6)
+
+    assert [e.title for e in entries] == ["第一章 投标邀请", "第二章 投标人须知"]
+    # 印刷页码 2 → PDF 第 3 页（前置封面与目录各 1 页）
+    assert entries[0].page == 3
+    assert entries[1].page == 6
+    assert entries[0].page_end == 5
+
+
+def test_reconstruct_toc_without_toc_page():
+    pages = {1: "封面", 2: "正文内容"}
+    assert reconstruct_toc(pages, page_count=2) == []
 
 
 def test_section_number():

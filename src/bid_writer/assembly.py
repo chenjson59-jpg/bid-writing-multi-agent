@@ -21,6 +21,16 @@ def _char_count(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
+def _strip_leading_heading(text: str, title: str) -> str:
+    """章节草稿可能自带开头的 `## 标题`（section_agent 产出和人工编辑都会带），
+    合并时外层已追加 `## {title}` 前缀，这里只去掉草稿开头**与本章节标题一致**的那个 heading，
+    避免误伤正文中 `### 一、编制说明...` 之类的小节标题。"""
+    stripped = text.lstrip()
+    # 只匹配标题为当前章节标题本身的 heading（允许 # ~ #### 任何层级）
+    pattern = rf"^#{{1,4}}\s+{re.escape(title)}\s*\n+"
+    return re.sub(pattern, "", stripped, count=1)
+
+
 def assemble_markdown(
     project_name: str,
     bidder: str,
@@ -31,7 +41,8 @@ def assemble_markdown(
     company = bidder or "【待填写：公司名称】"
     toc = "\n".join(f"{i}. {s.plan.title}" for i, s in enumerate(sections, 1))
     body = "\n\n".join(
-        f"## {s.plan.title}\n\n{s.markdown.strip()}" for s in sections
+        f"## {s.plan.title}\n\n{_strip_leading_heading(s.markdown.strip(), s.plan.title)}"
+        for s in sections
     )
     return (
         f"# {project_name or '【待填写：项目名称】'}\n\n"
@@ -51,8 +62,9 @@ def build_report(
     tender,
     profile,
     generated_at: datetime,
+    schema: dict | None = None,
 ) -> BidReport:
-    """计算覆盖报告（8.3.2–8.3.5）。`drafts` 需已按 order 排序。"""
+    """计算覆盖报告（8.3.2–8.3.5）。`drafts` 需已按 order 排序。schema 透传给 missing_fields。"""
     warnings: list[str] = []
 
     # 章节统计（8.3.2）
@@ -119,6 +131,6 @@ def build_report(
         format_coverage=format_coverage,
         evaluation_coverage=evaluation_coverage,
         placeholders=placeholders,
-        missing_profile_fields=profile.missing_fields(),
+        missing_profile_fields=profile.missing_fields(schema=schema),
         warnings=warnings,
     )

@@ -100,7 +100,11 @@ def _load_profile(company_name: str) -> BidderProfile:
     for item in items:
         data = item.get("data")
         if item.get("company_name") == company_name and isinstance(data, dict):
-            return BidderProfile.from_dict(data)
+            profile = BidderProfile.from_dict(data)
+            # 历史资料库里 data 可能缺少公司名，用资料库记录的公司名兜底
+            if not profile.company_name:
+                profile.company_name = company_name
+            return profile
     return BidderProfile(company_name=company_name)
 
 

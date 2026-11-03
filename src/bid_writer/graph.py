@@ -29,8 +29,9 @@ def run_write_pipeline(
     caller: ModelCaller,
     *,
     max_concurrency: int,
+    schema: dict | None = None,
 ) -> list[SectionDraft]:
-    """对每个章节并发执行写作循环，返回按 `order` 排序的草稿列表。"""
+    """对每个章节并发执行写作循环，返回按 `order` 排序的草稿列表。schema 透传给 section_agent。"""
     retrieved = {
         plan.id: (
             []
@@ -53,6 +54,7 @@ def run_write_pipeline(
                 min_score=options.min_score,
                 max_revisions=options.max_revisions,
                 caller=caller,
+                schema=schema,
             ): plan
             for plan in plans
         }

@@ -1,12 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
-import { getHealth, listBids, listDocuments } from './api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { getHealth, getJob, listBids, listDocuments } from './api'
 import { HistoryPage } from './pages/HistoryPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { UploadPage } from './pages/UploadPage'
 import { WritePage } from './pages/WritePage'
-import type { HealthInfo } from './types'
+import {
+  filterRunning,
+  isRunning,
+  isTerminal,
+  jobEquals,
+  kindLabel,
+  kindTab,
+  statusLabel,
+  TERMINAL_GRACE_MS,
+  type JobKind,
+  type Tab,
+} from './lib/task_state'
+import type { HealthInfo, JobView } from './types'
 
-type Tab = 'upload' | 'library' | 'write' | 'history'
 type Theme = 'dark' | 'light'
 type HealthState = 'ok' | 'down' | 'idle'
 
@@ -36,18 +47,136 @@ function StatusRow({ label, state, detail }: { label: string; state: HealthState
   )
 }
 
+// 全局任务进度条：fixed 贴底，任何页面都能看到，切 tab 不会丢
+function GlobalTaskBar({
+  parseJob,
+  bidJob,
+  onJumpTo,
+}: {
+  parseJob: JobView | null
+  bidJob: JobView | null
+  onJumpTo: (tab: Tab) => void
+}) {
+  const active = filterRunning([parseJob, bidJob])
+  if (active.length === 0) return null
+
+  return (
+    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 flex justify-center p-3">
+      <div className="pointer-events-auto w-[min(720px,92vw)] rounded-lg border border-sky-600/40 bg-slate-900/95 shadow-xl shadow-sky-900/30 backdrop-blur">
+        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2 text-xs">
+          <span className="flex items-center gap-1 text-sky-400">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
+            正在执行 {active.length} 个任务
+          </span>
+        </div>
+        <ul>
+          {active.map((job) => (
+            <li
+              key={job.job_id}
+              className="flex items-center gap-3 border-b border-slate-800/70 px-4 py-2 text-sm last:border-b-0"
+            >
+              <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                {kindLabel(job.kind)}
+              </span>
+              <span className="flex-1 truncate text-slate-300">
+                {job.source_name || '任务 ' + job.job_id.slice(0, 8)}
+              </span>
+              <span
+                className={
+                  job.status === 'running'
+                    ? 'text-sky-400'
+                    : job.status === 'pending'
+                      ? 'text-amber-400'
+                      : job.status === 'succeeded'
+                        ? 'text-emerald-400'
+                        : 'text-rose-400'
+                }
+              >
+                {statusLabel(job.status)}
+              </span>
+              {job.status === 'running' && job.progress.length > 0 && (
+                <span className="max-w-[220px] truncate text-xs text-slate-500">
+                  {job.progress[job.progress.length - 1]}
+                </span>
+              )}
+              <button
+                type="button"
+                className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                onClick={() => onJumpTo(kindTab(job.kind))}
+              >
+                查看
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('upload')
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
-  const [runningParse, setRunningParse] = useState(false)
-  const [runningBid, setRunningBid] = useState(false)
   const [docCount, setDocCount] = useState(0)
   const [bidCount, setBidCount] = useState(0)
   const [health, setHealth] = useState<HealthInfo | null>(null)
   const [healthDown, setHealthDown] = useState(false)
 
-  // 每 5 秒探测一次：任一组件掉线在顶栏直接可见，避免用户操作后才报错
+  // ---------- 全局任务状态：App 永远存活，切 tab 不卸载 ----------
+  const [activeJobs, setActiveJobs] = useState<Record<JobKind, JobView | null>>({
+    parse: null,
+    bid: null,
+  })
+  // 每种任务对应的后端 job_id（存在 ref 里避免闭包陈旧）
+  const activeJobIdRef = useRef<Record<JobKind, string | null>>({ parse: null, bid: null })
+
+  // 注册一个新的活跃任务（页面触发任务后调这个）
+  const registerJob = useCallback((kind: JobKind, jobId: string | null) => {
+    activeJobIdRef.current[kind] = jobId
+    if (!jobId) {
+      // 取消/出错：立即清掉
+      setActiveJobs((prev) => ({ ...prev, [kind]: null }))
+    }
+  }, [])
+
+  // 统一 poller：每秒 GET 每个活跃 jobId，更新 activeJobs
+  useEffect(() => {
+    const tick = async () => {
+      const kinds: JobKind[] = ['parse', 'bid']
+      for (const kind of kinds) {
+        const jobId = activeJobIdRef.current[kind]
+        if (!jobId) continue
+        try {
+          const job = await getJob(jobId)
+          setActiveJobs((prev) => {
+            if (jobEquals(prev[kind], job)) return prev
+            return { ...prev, [kind]: job }
+          })
+          // 任务终态：再保留 TERMINAL_GRACE_MS 让用户看到完成，然后自动清理
+          if (isTerminal(job)) {
+            window.setTimeout(() => {
+              // 只有当前还指向这个 jobId 才清（防止用户在 grace 内又提交新任务）
+              if (activeJobIdRef.current[kind] === jobId) {
+                activeJobIdRef.current[kind] = null
+                setActiveJobs((prev) => ({ ...prev, [kind]: null }))
+              }
+            }, TERMINAL_GRACE_MS)
+          }
+        } catch {
+          // poll 失败（网络抖动）静默跳过，等下一轮
+        }
+      }
+    }
+    const timer = window.setInterval(tick, 1500)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  // 派生：运行中 → 左侧 nav 蓝点
+  const runningParse = isRunning(activeJobs.parse)
+  const runningBid = isRunning(activeJobs.bid)
+
+  // ---------- 健康检查（每 5 秒） ----------
   useEffect(() => {
     let cancelled = false
     const tick = async () => {
@@ -114,8 +243,17 @@ export default function App() {
           : 'down'
         : 'idle'
 
+  // 切 tab
+  function jumpTo(target: Tab) {
+    setTab(target)
+  }
+
+  // 页面底部 padding，防止被 GlobalTaskBar 遮住
+  const hasActiveTask = runningParse || runningBid
+  const bottomPad = hasActiveTask ? 'pb-24' : ''
+
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100">
+    <div className={`flex min-h-screen bg-slate-950 text-slate-100 ${bottomPad}`}>
       <aside className="flex w-56 shrink-0 flex-col border-r border-slate-800 p-4">
         <h1 className="text-sm font-bold leading-5">招标文件多智能体系统</h1>
         <nav className="mt-6 flex-1 space-y-1">
@@ -173,7 +311,8 @@ export default function App() {
       <main className="flex-1 overflow-auto p-6">
         {tab === 'upload' && (
           <UploadPage
-            onRunningChange={setRunningParse}
+            onRegisterJob={(jobId) => registerJob('parse', jobId)}
+            activeJob={activeJobs.parse}
             onUploaded={refreshCounts}
             onWrite={goWrite}
           />
@@ -184,12 +323,15 @@ export default function App() {
         {tab === 'write' && (
           <WritePage
             initialDocId={selectedDocId}
-            onRunningChange={setRunningBid}
+            onRegisterJob={(jobId) => registerJob('bid', jobId)}
+            activeJob={activeJobs.bid}
             onWritten={refreshCounts}
           />
         )}
         {tab === 'history' && <HistoryPage onChanged={refreshCounts} />}
       </main>
+
+      <GlobalTaskBar parseJob={activeJobs.parse} bidJob={activeJobs.bid} onJumpTo={jumpTo} />
     </div>
   )
 }

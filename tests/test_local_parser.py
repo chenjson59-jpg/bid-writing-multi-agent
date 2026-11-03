@@ -1,10 +1,10 @@
 """本地解析（A7）测试。"""
 import pymupdf
 
-from src.parsing.local_parser import _clean_page_text, parse_local
+from src.parsing.local_parser import _clean_page_text, _page_text, parse_local
 
 
-def test_clean_page_text_drops_fingerprint_and_page_number():
+def test_clean_page_text_drops_fingerprint_only():
     fingerprint = "a" * 20 + "-" + "1" * 10
     text = f"{fingerprint}\n正文内容\n12\n结尾"
 
@@ -13,7 +13,22 @@ def test_clean_page_text_drops_fingerprint_and_page_number():
     assert "正文内容" in cleaned
     assert "结尾" in cleaned
     assert fingerprint not in cleaned
-    assert "12" not in cleaned.splitlines()
+    # 纯文本路径没有坐标，不能判断 12 是页码还是表格数字，故保留
+    assert "12" in cleaned.splitlines()
+
+
+def test_page_text_drops_footer_page_number_keeps_table_number():
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "BODY")
+    page.insert_text((72, 420), "30")   # 表格内的分值，位于页面中部
+    page.insert_text((295, 800), "12")  # 页脚页码
+
+    text = _page_text(page)
+
+    assert "BODY" in text
+    assert "30" in text.splitlines()
+    assert "12" not in text.splitlines()
 
 
 def test_clean_page_text_collapses_blank_lines():

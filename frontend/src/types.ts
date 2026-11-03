@@ -234,3 +234,20 @@ export interface BidderProfileUpsert {
   company_name: string
   data: BidderProfile
 }
+
+// ---------- 投标人资料 schema（后端根据抽取结果推断） ----------
+export type SchemaLevel = 'required' | 'recommended' | 'optional'
+
+export interface ProfileSchemaItem {
+  level: SchemaLevel
+  label: string
+  reason: string
+  matched: boolean
+}
+
+export interface ProfileSchemaResponse {
+  doc_id: string
+  doc_type: string
+  fields: Record<string, ProfileSchemaItem>
+  inferred_from: string[]
+}

@@ -13,7 +13,11 @@ from api.schemas import (
     DocumentSummary,
     ExtractionDetail,
     ExtractionUpdate,
+    ProfileSchemaItem,
+    ProfileSchemaResponse,
 )
+from src.bid_writer.profile_schema import infer_profile_schema
+from src.bid_writer.schema import PROFILE_FIELD_LABELS
 from src.extraction.schema import (
     BASIC_SCALAR_KEYS,
     EVALUATION_CATEGORIES,
@@ -184,6 +188,38 @@ def save_extraction(doc_id: str, body: ExtractionUpdate) -> ExtractionDetail:
     data["extraction_meta"] = meta
     _write_extraction_data(doc_id, data)
     return get_extraction(doc_id)
+
+
+@router.get(
+    "/documents/{doc_id}/profile-schema",
+    response_model=ProfileSchemaResponse,
+)
+def get_profile_schema(doc_id: str) -> ProfileSchemaResponse:
+    """根据抽取结果推断投标人资料哪些字段必填、哪些建议、哪些可选。
+
+    规则：
+    - 任何标书都必填：公司名称、法定代表人、注册资本、成立日期、注册地址
+    - 标书中评分因素 / 资质要求 / 格式条目中明确提及的 → 必填（工程类通常是业绩/人员）
+    - 模糊提及或作为资质描述一部分 → 建议填
+    - 没提过 → 可选（前端折叠显示）
+    """
+    data = _load_extraction_data(doc_id)
+    raw = infer_profile_schema(data, PROFILE_FIELD_LABELS)
+    fields = {key: ProfileSchemaItem(**value) for key, value in raw.items()}
+    # 记录推断来源，便于排查（如果前端有需要也可以展示）
+    inferred_from: list[str] = []
+    if data.get("evaluation_factors") or data.get("evaluation", {}).get("factors"):
+        inferred_from.append("evaluation_factors")
+    if data.get("qualifications") or data.get("qualification_items"):
+        inferred_from.append("qualification_items")
+    if data.get("bid_format_items"):
+        inferred_from.append("bid_format_items")
+    return ProfileSchemaResponse(
+        doc_id=doc_id,
+        doc_type=str(data.get("doc_type") or ""),
+        fields=fields,
+        inferred_from=inferred_from,
+    )
 
 
 @router.get("/documents/{doc_id}/markdown")

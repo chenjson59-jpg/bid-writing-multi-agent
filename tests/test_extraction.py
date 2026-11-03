@@ -8,8 +8,10 @@ from src.extraction.extractor import (
     MIN_BISECT_CHARS,
     ExtractStats,
     Unit,
+    _drop_misplaced_bid_format,
     _ensure_bid_format_items,
     _extract_unit,
+    _normalize_budget,
     build_units,
     ground_check,
     merge_dict,
@@ -40,6 +42,37 @@ _OK_JSON = json.dumps(
 )
 
 
+_EMPTY_JSON = json.dumps(
+    {
+        "basic": {},
+        "evaluation": {"factors": [], "preliminary_review": [], "score_table": []},
+        "qualification": {"items": []},
+        "bid_format": {"items": []},
+        "contract": {"highlights": []},
+        "tech": {"requirements": []},
+    },
+    ensure_ascii=False,
+)
+
+_FILLED_JSON = json.dumps(
+    {
+        "evaluation": {
+            "factors": [
+                {
+                    "category": "价格",
+                    "name": "投标报价",
+                    "score": "30",
+                    "source_quote": "投标报价30分",
+                }
+            ],
+            "preliminary_review": ["投标文件完整"],
+            "score_table": [{"factor": "投标报价", "score": "30", "comment": ""}],
+        }
+    },
+    ensure_ascii=False,
+)
+
+
 def _ok_result() -> dict:
     return {"content": _OK_JSON, "finish_reason": "stop", "json_mode_used": True}
 
@@ -58,6 +91,18 @@ def _entries() -> list[TocEntry]:
         TocEntry(level=1, title="第一章 投标邀请", page=1, page_end=1),
         TocEntry(level=1, title="第二章 评标办法", page=2, page_end=2),
     ]
+
+
+def test_focus_for_whole_document_extracts_all():
+    # 无章节结构时单元标题为「全文」，必须全字段抽取而非仅 basic
+    assert focus_for_chapter([], "全文") == "all"
+
+
+def test_normalize_budget_takes_amount_and_unit():
+    text = "项目预算金额：300 万元、项目最高限价：300 万元"
+    assert _normalize_budget(text) == "300万元"
+    assert _normalize_budget("人民币 50 元") == "50元"
+    assert _normalize_budget("") == ""
 
 
 # ---- A9 单元切分 ----
@@ -91,7 +136,13 @@ def test_focus_routing_priority():
     assert focus_for_chapter(["第七章 合同"], "合同技术条款") == "tech"
     assert focus_for_chapter([], "第五章 合同条款") == "contract"
     assert focus_for_chapter([], "第二章 投标人须知") == "qualification"
-    assert focus_for_chapter([], "第一章 采购需求") == "basic"
+    # 服务/活动/培训类关键词
+    assert focus_for_chapter([], "第一章 采购需求") == "service_spec"
+    assert focus_for_chapter([], "培训课程体系与计划") == "service_spec"
+    assert focus_for_chapter([], "活动日程与实施方案") == "service_spec"
+    # 完全不含重点关键词 → 兜底 basic
+    assert focus_for_chapter([], "第一章 总则") == "basic"
+    assert focus_for_chapter([], "项目概述") == "basic"
 
 
 # ---- A11 宽容归一化 ----
@@ -228,6 +279,44 @@ def test_ensure_bid_format_item_skips_when_present():
     assert result[0]["bid_format"]["items"] == [{"title": "已有条目"}]
 
 
+def test_ensure_bid_format_items_scans_chapter_text():
+    text = (
+        "一、资格证明文件格式\n"
+        "投标文件（资格证明文件）封面（非实质性格式）\n"
+        "1-2 投标人资格声明书\n"
+        "投标书（实质性格式）\n"
+        "附：法定代表人（单位负责人）身份证明\n"
+        "开标一览表（实质性格式）\n"
+    )
+    result = _ensure_bid_format_items([_EMPTY_PARTIAL], [], "第七章 投标文件格式", text)
+
+    titles = [item["title"] for item in result[0]["bid_format"]["items"]]
+    # 分组标题「一、资格证明文件格式」不算具体模板
+    assert len(titles) == 5
+    assert "一、资格证明文件格式" not in titles
+    assert "投标书（实质性格式）" in titles
+
+
+def test_drop_misplaced_bid_format_in_qualification_chapter():
+    partial = {
+        **_EMPTY_PARTIAL,
+        "bid_format": {"items": [{"title": "营业执照等证明文件"}]},
+    }
+    result = _drop_misplaced_bid_format([partial], [], "第三章 资格审查")
+
+    assert result[0]["bid_format"]["items"] == []
+
+
+def test_keep_bid_format_in_format_chapter():
+    partial = {
+        **_EMPTY_PARTIAL,
+        "bid_format": {"items": [{"title": "投标书"}]},
+    }
+    result = _drop_misplaced_bid_format([partial], [], "第七章 投标文件格式")
+
+    assert result[0]["bid_format"]["items"] == [{"title": "投标书"}]
+
+
 # ---- A14 截断二分 ----
 
 
@@ -263,3 +352,26 @@ def test_extract_unit_short_text_no_bisect():
 
     with pytest.raises(ExtractError):
         _extract_unit(unit, caller, stats)
+
+
+class _EmptyThenFilledCaller:
+    """第一次返回全空（模拟模型抖动），第二次返回正常结果。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, messages, json_mode):
+        self.calls += 1
+        content = _EMPTY_JSON if self.calls == 1 else _FILLED_JSON
+        return {"content": content, "finish_reason": "stop", "json_mode_used": True}
+
+
+def test_extract_unit_retries_when_evaluation_empty():
+    caller = _EmptyThenFilledCaller()
+    unit = Unit("第四章 评标办法", [], "综合评分法：投标报价30分。")
+    stats = ExtractStats()
+
+    result = _extract_unit(unit, caller, stats)
+
+    assert caller.calls == 2
+    assert result[0]["evaluation"]["factors"]

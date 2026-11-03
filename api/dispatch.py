@@ -136,7 +136,7 @@ class CeleryBackend:
             view["progress"] = info.get("progress", [])
             view["started_at"] = _iso(info.get("started_at"))
         elif status == "succeeded" and isinstance(result.result, dict):
-            if view.get("kind") in ("bid", "supplement"):
+            if view.get("kind") in ("bid", "supplement", "rewrite"):
                 view["bid"] = result.result.get("bid")
             else:
                 view.update(_split_result(result.result))

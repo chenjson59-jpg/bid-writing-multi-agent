@@ -425,8 +425,9 @@ npm run electron   # Electron 窗口，加载开发服务器
 npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
 ```
 
-- 开发态使用相对 `/api`，依赖 Vite 代理；打包后的 `file://` 页面自动回退到
-  `http://127.0.0.1:8001`，也可用构建期变量 `VITE_API_BASE` 覆盖。
+- 开发态使用相对 `/api`，依赖 Vite 代理；打包后的 `file://` 页面默认直连
+  `http://47.117.189.10:8001`，也可用构建期变量 `VITE_API_BASE` 覆盖（本地联调时可改回
+  `http://localhost:8001`）。桌面端启动脚本见仓库根目录 `启动标书桌面端.bat`，无需 SSH 隧道。
 - Electron 通过 preload 暴露 `openPath` / `showItemInFolder`，主进程只允许打开
   仓库 `upload/` 下的路径；可用 `BIDDING_UPLOAD_ROOT` 覆盖根目录。
 - 构建后可用 `ELECTRON_LOAD_DIST=1 npm run electron` 验证 `file://` 加载与 IPC。
@@ -439,7 +440,7 @@ npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
 
 生产形态：FastAPI 挂载 `frontend/dist`，前端与 API 共用一个端口对外；Redis 跑在
 Docker 容器里；API 与 worker 跑在 tmux 会话中，SSH 断开不受影响。以下以 Web 端口
-`8200`、Redis 宿主端口 `6382`、部署目录 `~/group_2/bidding` 为例。
+`8001`、Redis 宿主端口 `6382`、部署目录 `~/group_2/CJS/bid-writing-multi-agent` 为例。
 
 ### 1. 本地打包前端
 
@@ -460,7 +461,7 @@ $env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
 
 ```bash
 docker ps                                      # 报 permission denied 则走文末回退方案
-ss -tln | grep -E ':(8200|6382)'               # 有输出说明端口被占，换端口
+ss -tln | grep -E ':(8001|6382)'               # 有输出说明端口被占，换端口
 python3 -V                                     # 需 ≥3.12（pyproject 要求，3.11 会在 uv sync 失败）
 # 连通性：只要拿到 HTTP 状态码就算通。401 是方舟网关要求鉴权（根路径未带密钥），属正常
 curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 https://ark.cn-beijing.volces.com  # 期望 401/404，不是空或超时
@@ -497,13 +498,13 @@ uv sync
 tar -czf bidding-src.tar.gz --exclude=.venv --exclude=node_modules `
   --exclude=frontend/node_modules --exclude=upload --exclude=chroma_db `
   --exclude=logs --exclude=.env .
-scp bidding-src.tar.gz user@IP:~/group_2/CJS/
+scp bidding-src.tar.gz admin@IP:~/group_2/
 ```
 
 服务器上解包后再补齐依赖（`uv sync` 会按 Linux 平台重建 `.venv`，不要上传 Windows 的 `.venv`）：
 
 ```bash
-cd ~/group_2/CJS && mkdir -p bidding && tar -xzf bidding-src.tar.gz -C bidding && cd bidding
+cd ~/group_2 && mkdir -p bidding && tar -xzf bidding-src.tar.gz -C bidding && cd bidding
 curl -LsSf https://astral.sh/uv/install.sh | sh && source ~/.local/bin/env
 uv sync
 ```
@@ -511,9 +512,15 @@ uv sync
 最后上传构建产物与已有数据（本地执行；后两者可选，省去重新解析的 LLM 费用）：
 
 ```powershell
-scp -r frontend\dist user@IP:~/group_2/bidding/frontend/
-scp -r upload chroma_db user@IP:~/group_2/bidding/
+scp -r frontend\dist admin@IP:~/group_2/bidding/frontend/
+scp -r upload chroma_db admin@IP:~/group_2/bidding/
 ```
+
+> **`admin@IP` 是占位符**：格式为「服务器登录用户名 @ 公网 IP」，换成你实际的账号（如 `admin`、`root`）。
+> 本项目示例部署目录是 `~/group_2`，若你的目录是 `~/group_2/CJS`，把上面所有 `~/group_2` 换成 `~/group_2/CJS`。
+> `scp` 提示密码时输入的是**这个账号**的密码；账号名写错（例如照抄 `user`）会一直提示密码错误。
+> 全程用同一个账号操作：先用 `root` 建目录、再用 `admin` 上传，会导致属主不一致，
+> 后续写文件、`git pull` 都会报 `Permission denied`。服务器禁用密码登录时 `scp` 也只能走密钥。
 
 ### 3. Redis 容器
 
@@ -530,6 +537,15 @@ docker exec -it bidding-redis redis-cli -a 'Redis密码' PING   # 期望 PONG
 ```
 
 只绑定 `127.0.0.1` 且必须设密码；数据存命名卷，容器重建不丢，服务器重启后自动拉起。
+
+> 拉镜像报 `proxyconnect tcp: dial tcp 127.0.0.1:1081: connect: connection refused`，是 docker
+> daemon 配了本机代理而代理没在跑（常见于装过科学上网工具后残留）。排查：
+> `sudo systemctl cat docker | grep -i proxy`，删掉指向 `127.0.0.1:xxxx` 的
+> `Environment="HTTP_PROXY=..."`（对应 `/etc/systemd/system/docker.service.d/` 下的 conf），
+> 或删 `daemon.json` 里的 `"proxies"` 段，再 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
+> 镜像源不可用时换阿里云容器镜像服务分配的专属加速地址。
+> 实在拉不下来可跳过 Docker：系统包装好 `redis-server` 后在 tmux 里跑
+> `redis-server --port 6382 --bind 127.0.0.1 --requirepass '密码' --appendonly yes --dir ~/redis-data`。
 
 ### 4. 配置 .env
 
@@ -565,7 +581,7 @@ DATA_RETENTION_DAYS=30                          # 0 表示不自动清理，配�
 
 ```bash
 tmux new -s bidding
-uv run uvicorn api.main:app --host 0.0.0.0 --port 8200
+uv run uvicorn api.main:app --host 0.0.0.0 --port 8001
 # Ctrl+B " 分屏后：
 uv run celery -A src.celery_app worker --loglevel=info
 # Ctrl+B d 脱离会话；tmux attach -t bidding 重新进入
@@ -580,10 +596,10 @@ uv run celery -A src.celery_app worker --loglevel=info
 ### 6. 验证
 
 ```bash
-curl localhost:8200/api/health        # {"status":"ok","broker_ok":true,"worker_ok":true}
-curl localhost:8200/api/documents     # 401（令牌生效）
-curl -H 'X-API-Token: 自定义复杂令牌' localhost:8200/api/documents   # 200
-curl -s localhost:8200/ | head -1     # <!doctype html>
+curl localhost:8001/api/health        # {"status":"ok","broker_ok":true,"worker_ok":true}
+curl localhost:8001/api/documents     # 401（令牌生效）
+curl -H 'X-API-Token: 自定义复杂令牌' localhost:8001/api/documents   # 200
+curl -s localhost:8001/ | head -1     # <!doctype html>
 ```
 
 `worker_ok` 在 worker 刚启动的十几秒内可能短暂为 `false`，属正常；持续 `false`
@@ -596,8 +612,8 @@ uv run python -m src.cli doctor --probe-embeddings   # 输出维度 2048 才算�
 浏览器打开后建议再手工确认两条前端链路：「文档库 → 抽取结果」能编辑保存并显示
 已核对徽章，「编写标书」能提交并轮询到产物。
 
-浏览器访问 `http://服务器IP:8200`。打不开说明防火墙未放行 8200，可联系管理员开放，
-或临时用 `ssh -L 8200:127.0.0.1:8200 user@IP` 建隧道后访问 `http://localhost:8200`。
+浏览器访问 `http://服务器IP:8001`。打不开说明防火墙未放行 8001，可联系管理员开放；
+桌面端 App 直接请求该地址，无需 SSH 隧道。
 
 ### 7. 运维与回退
 

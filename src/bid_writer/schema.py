@@ -15,7 +15,18 @@ STRATEGY_FILL_TEMPLATE = "fill_template"
 STRATEGY_PLACEHOLDER = "placeholder"
 
 # 策略关键词（8.1.3 标题关键词 → 策略）
-_GENERATE_KEYWORDS = ("施工组织设计", "项目管理机构", "其他评分", "其他资料")
+_GENERATE_KEYWORDS = (
+    "施工组织设计", "项目管理机构", "其他评分", "其他资料",
+    "方案", "计划", "理解", "实施", "服务", "管理", "保障",
+    "措施", "机构", "业绩", "团队", "进度", "应急", "选型",
+    "关键", "难点", "对策", "分析", "配置", "组织",
+)
+# 明确是填写表单/封面的章节，即使命中内容关键词也保持占位，避免被当作正文生成
+_PLACEHOLDER_KEYWORDS = (
+    "封面", "一览表", "偏离表", "报价表", "分项报价", "开标",
+    "声明函", "承诺函", "证明文件", "资格声明", "中小企业", "情况表",
+    "业绩一览表", "其他材料", "资格要求",
+)
 _FILL_KEYWORDS = ("投标函", "授权委托书", "身份证明", "承诺", "声明")
 
 # ---- 占位符（核心算法 8.4.1）----
@@ -62,6 +73,9 @@ def choose_strategy(title: str) -> str:
     for keyword in _FILL_KEYWORDS:
         if keyword in title:
             return STRATEGY_FILL_TEMPLATE
+    for keyword in _PLACEHOLDER_KEYWORDS:
+        if keyword in title:
+            return STRATEGY_PLACEHOLDER
     for keyword in _GENERATE_KEYWORDS:
         if keyword in title:
             return STRATEGY_GENERATE
@@ -110,10 +124,21 @@ class BidderProfile:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def missing_fields(self) -> list[str]:
-        """返回缺失字段的中文名列表，顺序固定（8.4.2）。"""
+    def missing_fields(self, schema: dict[str, Any] | None = None) -> list[str]:
+        """返回缺失字段的中文名列表，顺序固定（8.4.2）。
+
+        若传入了 profile-schema 推断结果（来自 `profile_schema.infer_profile_schema`），
+        则只把标为 required / recommended 但值为空的字段算作缺失；optional 字段
+        用户没填时不算缺失（标书没提过的东西，不应该要求投标人填）。
+        schema 为 None 时退化为：所有空字段都算缺失（兼容旧调用方）。
+        """
         missing: list[str] = []
         for field_key in MISSING_FIELD_ORDER:
+            # schema 模式：只算 required/recommended 的缺失
+            if schema and field_key in schema:
+                level = schema[field_key].get("level", "optional")
+                if level == "optional":
+                    continue  # 标书没提过 → 用户没填不怪他
             value = getattr(self, field_key)
             if value in (None, "", [], {}):
                 missing.append(PROFILE_FIELD_LABELS[field_key])

@@ -4,27 +4,183 @@ import {
   createProfile,
   deleteProfile,
   describeError,
+  getProfileSchema,
   listDocuments,
   listProfiles,
   updateProfile,
 } from '../api'
-import { usePolling } from '../hooks'
 import type {
   BidCreateBody,
   BidderProfile,
   BidderProfileItem,
   DocumentSummary,
+  JobView,
+  ProfileSchemaItem,
+  ProfileSchemaResponse,
+  SchemaLevel,
 } from '../types'
 import { Banner, Button, Card, EmptyState, Field, Modal } from '../ui'
 import { ResultView } from './ResultView'
 
 interface WritePageProps {
   initialDocId: string | null
-  onRunningChange: (running: boolean) => void
+  /** 页面触发编写任务时调这个，把 jobId 上交给 App 全局 poll */
+  onRegisterJob: (jobId: string | null) => void
+  /** App 全局 poll 回来的最新任务状态（切 tab 也不会丢） */
+  activeJob: JobView | null
   onWritten: () => void
 }
 
-export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePageProps) {
+// 复杂资料拆成结构化表单，业务人员按字段填写，不必手写 JSON
+interface ProjectRow {
+  project_name: string
+  project_type: string
+  scale: string
+  contract_amount: string
+  role: string
+  start_date: string
+  completion_date: string
+  location: string
+  owner: string
+}
+
+interface PersonRow {
+  position: string
+  name: string
+  certificate: string
+  safety_cert: string
+  experience_years: string
+}
+
+interface FinancialsForm {
+  report_period: string
+  total_assets: string
+  total_liabilities: string
+  owner_equity: string
+  operating_revenue: string
+  net_profit: string
+  operating_cash_flow: string
+  current_ratio: string
+  quick_ratio: string
+  debt_ratio: string
+  return_on_equity: string
+  audit_opinion: string
+}
+
+interface ContactForm {
+  address: string
+  postal_code: string
+  phone: string
+  fax: string
+  email: string
+  website: string
+  bank: string
+  bank_account: string
+}
+
+const emptyProject: ProjectRow = {
+  project_name: '',
+  project_type: '',
+  scale: '',
+  contract_amount: '',
+  role: '',
+  start_date: '',
+  completion_date: '',
+  location: '',
+  owner: '',
+}
+
+const emptyPerson: PersonRow = {
+  position: '',
+  name: '',
+  certificate: '',
+  safety_cert: '',
+  experience_years: '',
+}
+
+const emptyFinancials: FinancialsForm = {
+  report_period: '',
+  total_assets: '',
+  total_liabilities: '',
+  owner_equity: '',
+  operating_revenue: '',
+  net_profit: '',
+  operating_cash_flow: '',
+  current_ratio: '',
+  quick_ratio: '',
+  debt_ratio: '',
+  return_on_equity: '',
+  audit_opinion: '',
+}
+
+const emptyContact: ContactForm = {
+  address: '',
+  postal_code: '',
+  phone: '',
+  fax: '',
+  email: '',
+  website: '',
+  bank: '',
+  bank_account: '',
+}
+
+// 结构化表单里的输入框统一样式
+const INPUT_CLASS = 'w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100'
+
+// 更新列表里某一行，只改变化的字段
+function updateRow<T>(rows: T[], index: number, patch: Partial<T>): T[] {
+  return rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+}
+
+// 回填：把资料库里的任意结构按模板字段取字符串
+function toRows<T extends object>(src: unknown, template: T): T[] {
+  if (!Array.isArray(src)) return []
+  return src
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const row: Record<string, string> = {}
+      for (const key of Object.keys(template)) {
+        row[key] = String((item as Record<string, unknown>)[key] ?? '')
+      }
+      return row as unknown as T
+    })
+}
+
+function toForm<T extends object>(src: unknown, template: T): T {
+  const row: Record<string, string> = {}
+  for (const key of Object.keys(template)) {
+    row[key] =
+      src && typeof src === 'object'
+        ? String((src as Record<string, unknown>)[key] ?? '')
+        : ''
+  }
+  return row as unknown as T
+}
+
+// 提交前清理：去掉空白字段和整行全空的记录
+function compactRows<T extends object>(rows: T[]): Record<string, string>[] {
+  return rows
+    .map((row) => {
+      const out: Record<string, string> = {}
+      for (const [key, value] of Object.entries(row)) {
+        const trimmed = String(value).trim()
+        if (trimmed) out[key] = trimmed
+      }
+      return out
+    })
+    .filter((row) => Object.keys(row).length > 0)
+}
+
+function compactForm<T extends object>(form: T): Record<string, string> | null {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(form)) {
+    const trimmed = String(value).trim()
+    if (trimmed) out[key] = trimmed
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+export function WritePage({ initialDocId, onRegisterJob, activeJob, onWritten }: WritePageProps) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [docId, setDocId] = useState<string>('')
   const [companyName, setCompanyName] = useState('')
@@ -34,8 +190,10 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
   const [address, setAddress] = useState('')
   const [qualifications, setQualifications] = useState('')
   const [certifications, setCertifications] = useState('')
-  const [advancedJson, setAdvancedJson] = useState('')
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [projects, setProjects] = useState<ProjectRow[]>([])
+  const [persons, setPersons] = useState<PersonRow[]>([])
+  const [financials, setFinancials] = useState<FinancialsForm>(emptyFinancials)
+  const [contact, setContact] = useState<ContactForm>(emptyContact)
   const [maxRevisions, setMaxRevisions] = useState('')
   const [minScore, setMinScore] = useState('')
   const [maxSections, setMaxSections] = useState(0)
@@ -47,6 +205,16 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
   const [profileId, setProfileId] = useState<number | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [lastBody, setLastBody] = useState<BidCreateBody | null>(null)
+  const [precheckOpen, setPrecheckOpen] = useState(false)
+  const [missingFields, setMissingFields] = useState<
+    Array<{ key: keyof BidderProfile; label: string }>
+  >([])
+  // 后端根据抽取结果推断的资料字段级别：required / recommended / optional
+  const [schema, setSchema] = useState<ProfileSchemaResponse | null>(null)
+  const [schemaLoading, setSchemaLoading] = useState(false)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
+  // optional 字段默认折叠，用户可展开查看
+  const [optionalOpen, setOptionalOpen] = useState(false)
 
   const refreshProfiles = useCallback(async () => {
     try {
@@ -56,13 +224,15 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     }
   }, [])
 
-  const { job } = usePolling(jobId, (doneJob) => {
-    onRunningChange(false)
-    if (doneJob.status === 'succeeded') {
+  // activeJob 是 App 全局 poll 回来的最新状态。终态时本地调 onWritten + refreshProfiles，
+  // App 那边会自动把 runningBid 设为 false 并在 8 秒后清理 activeJob。
+  useEffect(() => {
+    if (!activeJob) return
+    if (activeJob.status === 'succeeded') {
       onWritten()
       refreshProfiles()
     }
-  })
+  }, [activeJob?.status, activeJob?.job_id, onWritten, refreshProfiles])
 
   useEffect(() => {
     refreshProfiles()
@@ -87,10 +257,74 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     [documents, docId],
   )
 
-  function buildProfile(): BidderProfile {
-    if (advancedJson.trim()) {
-      return JSON.parse(advancedJson) as BidderProfile
+  // 选中文档变化时，向服务端询问这份标书需要投标人填哪些字段
+  useEffect(() => {
+    if (!selectedDoc) {
+      setSchema(null)
+      setSchemaError(null)
+      return
     }
+    let cancelled = false
+    setSchemaLoading(true)
+    setSchemaError(null)
+    getProfileSchema(selectedDoc.doc_id)
+      .then((resp) => {
+        if (!cancelled) {
+          setSchema(resp)
+          setOptionalOpen(false)
+          setSchemaError(null)
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          // schema 端点调用失败时降级为不影响现有表单，
+          // 但给业务人员一个小提示，让他知道哪些字段"按通用规则"可能需要填
+          setSchema(null)
+          setSchemaError(
+            e && typeof e === 'object' && 'message' in e
+              ? String((e as Error).message)
+              : '无法根据标书内容自动判断哪些字段必填，以下按通用规则显示',
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSchemaLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedDoc?.doc_id])
+
+  // 取字段级别；schema 缺失时按 required 兜底（不影响业务）
+  function levelOf(key: string): SchemaLevel {
+    const item = schema?.fields[key]
+    if (item?.level) return item.level
+    // core 字段任何时候都必填
+    if (['company_name', 'legal_representative', 'registered_capital', 'established_date', 'address'].includes(key)) {
+      return 'required'
+    }
+    // schema 还没加载到（null / 请求失败）→ 安全降级为 optional，
+    // 避免把标书没提过的字段都算"缺失"。schema 加载成功后会自动变成正确级别。
+    return 'optional'
+  }
+
+  function schemaItemOf(key: string): ProfileSchemaItem | undefined {
+    return schema?.fields[key]
+  }
+
+  // 给 Field 组件用：按级别返回 label 后缀和 error/warn 状态
+  function labelSuffix(level: SchemaLevel): string {
+    if (level === 'required') return ' *'
+    if (level === 'recommended') return ' 建议'
+    return ''
+  }
+  function labelClass(level: SchemaLevel): string {
+    if (level === 'required') return 'text-slate-100 after:text-rose-500 after:content-["*"]'
+    if (level === 'recommended') return 'text-amber-400'
+    return 'text-slate-500'
+  }
+
+  function buildProfile(): BidderProfile {
     const profile: BidderProfile = {}
     if (companyName.trim()) profile.company_name = companyName.trim()
     if (legalRep.trim()) profile.legal_representative = legalRep.trim()
@@ -101,34 +335,102 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     if (quals.length) profile.qualifications = quals
     const certs = certifications.split('\n').map((s) => s.trim()).filter(Boolean)
     if (certs.length) profile.certifications = certs
+    // 结构化表单收集，空行/空字段不提交
+    const projectRows = compactRows(projects)
+    if (projectRows.length) profile.similar_projects = projectRows as unknown as Record<string, unknown>[]
+    const personRows = compactRows(persons)
+    if (personRows.length) profile.personnel = personRows as unknown as Record<string, unknown>[]
+    const financialForm = compactForm(financials)
+    if (financialForm) profile.financials = financialForm
+    const contactForm = compactForm(contact)
+    if (contactForm) profile.contact = contactForm
     return profile
   }
 
   function profileIsEmpty(): boolean {
-    if (advancedJson.trim()) {
-      try {
-        return Object.keys(JSON.parse(advancedJson) as object).length === 0
-      } catch {
-        return false
-      }
+    const basicEmpty =
+      !companyName &&
+      !legalRep &&
+      !registeredCapital &&
+      !establishedDate &&
+      !address &&
+      !qualifications.trim() &&
+      !certifications.trim()
+    return basicEmpty && compactRows(projects).length === 0 && compactRows(persons).length === 0
+  }
+
+  // 与后端 PROFILE_FIELD_LABELS / MISSING_FIELD_ORDER 保持一致
+  const PROFILE_FIELD_ORDER: Array<[keyof BidderProfile, string]> = [
+    ['company_name', '公司名称'],
+    ['legal_representative', '法定代表人'],
+    ['registered_capital', '注册资本'],
+    ['established_date', '成立日期'],
+    ['address', '注册地址'],
+    ['qualifications', '企业资质'],
+    ['certifications', '认证证书'],
+    ['similar_projects', '类似项目业绩'],
+    ['personnel', '项目管理人员'],
+    ['financials', '财务数据'],
+    ['contact', '联系方式'],
+  ]
+
+  // 复杂资料对应的结构化区块，填写位置与基础输入框不同
+  const ADVANCED_FIELD_KEYS = new Set<string>([
+    'similar_projects',
+    'personnel',
+    'financials',
+    'contact',
+  ])
+
+  function missingProfileEntries(): Array<{ key: keyof BidderProfile; label: string }> {
+    const p = buildProfile() as Record<string, unknown>
+    return PROFILE_FIELD_ORDER.filter(([key]) => {
+      // 标书没提过的 optional 字段不算缺失
+      if (levelOf(key as string) === 'optional') return false
+      const v = p[key]
+      return (
+        v === undefined ||
+        v === null ||
+        v === '' ||
+        (Array.isArray(v) && v.length === 0) ||
+        (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0)
+      )
+    }).map(([key, label]) => ({ key, label }))
+  }
+
+  // 把用户带到真正该填写的位置
+  function goToField(key: keyof BidderProfile) {
+    setPrecheckOpen(false)
+    // 列表类资料还没有行时，先插入一条空行，否则跳过去也无可输入
+    if (key === 'similar_projects' && projects.length === 0) {
+      setProjects([{ ...emptyProject }])
     }
-    return !companyName && !legalRep && !registeredCapital && !establishedDate && !address && !qualifications.trim() && !certifications.trim()
+    if (key === 'personnel' && persons.length === 0) {
+      setPersons([{ ...emptyPerson }])
+    }
+    window.setTimeout(() => {
+      const el = document.getElementById(`profile-${String(key)}`)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const input = el?.querySelector('input, textarea')
+      if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+        input.focus({ preventScroll: true })
+      }
+    }, 150)
   }
 
   function openConfirm() {
     setError(null)
-    if (advancedJson.trim()) {
-      try {
-        JSON.parse(advancedJson)
-      } catch {
-        setError('高级 JSON 非法，请检查格式')
-        return
-      }
+    // 编写前预检：缺资料时先提示，避免生成一堆【待填写】占位符
+    const missing = missingProfileEntries()
+    if (missing.length > 0) {
+      setMissingFields(missing)
+      setPrecheckOpen(true)
+      return
     }
     setConfirmOpen(true)
   }
 
-  // 资料库 → 表单：简单字段进输入框，复杂结构（业绩/人员/财务）回填到高级 JSON
+  // 资料库 → 表单：基础字段进输入框，业绩/人员/财务/联系方式回填到结构化区块
   function applyProfile(item: BidderProfileItem) {
     const d = item.data ?? {}
     setCompanyName(d.company_name || item.company_name)
@@ -138,13 +440,10 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     setAddress(d.address || '')
     setQualifications((d.qualifications ?? []).join('\n'))
     setCertifications((d.certifications ?? []).join('\n'))
-    const rest: BidderProfile = {}
-    if (d.similar_projects?.length) rest.similar_projects = d.similar_projects
-    if (d.personnel?.length) rest.personnel = d.personnel
-    if (d.financials) rest.financials = d.financials
-    if (d.contact) rest.contact = d.contact
-    if (d.notes?.length) rest.notes = d.notes
-    setAdvancedJson(Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '')
+    setProjects(toRows(d.similar_projects, emptyProject))
+    setPersons(toRows(d.personnel, emptyPerson))
+    setFinancials(toForm(d.financials, emptyFinancials))
+    setContact(toForm(d.contact, emptyContact))
     setProfileId(item.id)
     setError(null)
     setNotice(`已载入「${item.company_name}」的资料`)
@@ -190,13 +489,12 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     setConfirmOpen(false)
     setError(null)
     setLastBody(body)
-    onRunningChange(true)
     try {
       const accepted = await createBid(body)
       setJobId(accepted.job_id)
+      onRegisterJob(accepted.job_id)
     } catch (e) {
       setError(describeError(e))
-      onRunningChange(false)
     }
   }
 
@@ -211,7 +509,16 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
     })
   }
 
-  const busy = jobId !== null && (!job || job.status === 'pending' || job.status === 'running')
+  // 本地 jobId 仅用于视图切换（任务提交后的"任务视图 ←→ 表单视图"切换）
+  // activeJob 是 App 全局 poll 回来的最新状态（切 tab 也不会丢）
+  const busy =
+    !!activeJob &&
+    (activeJob.status === 'pending' || activeJob.status === 'running')
+  const localJob = activeJob && jobId && activeJob.job_id === jobId ? activeJob : null
+  // 资料完整度实时提示，编写前就能看到还缺什么、该去哪填
+  const liveMissing = missingProfileEntries()
+  const liveMissingSet = new Set(liveMissing.map((m) => String(m.key)))
+  const liveAdvancedMissing = liveMissing.filter((m) => ADVANCED_FIELD_KEYS.has(String(m.key)))
 
   if (documents.length === 0) {
     return (
@@ -229,29 +536,35 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
         {busy && (
           <Card title="编写进度">
             <p className="text-sm text-slate-300">
-              {job ? (job.status === 'pending' ? '排队中' : '编写中') : '提交中'}
+              {localJob ? (localJob.status === 'pending' ? '排队中' : '编写中') : '提交中'}
             </p>
-            {job?.progress.map((p, i) => (
+            {localJob?.progress.map((p, i) => (
               <p key={i} className="text-sm text-slate-400">
                 {p}
               </p>
             ))}
           </Card>
         )}
-        {job?.status === 'failed' && (
+        {localJob?.status === 'failed' && (
           <Card title="编写失败">
-            <Banner kind="error">{job.error ?? '编写失败'}</Banner>
+            <Banner kind="error">{localJob.error ?? '编写失败'}</Banner>
             <div className="mt-3 flex gap-2">
               {lastBody && (
                 <Button onClick={() => startBid(lastBody)}>重试（沿用原参数）</Button>
               )}
-              <Button variant="secondary" onClick={() => setJobId(null)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setJobId(null)
+                  onRegisterJob(null)
+                }}
+              >
                 返回修改参数
               </Button>
             </div>
           </Card>
         )}
-        {job?.status === 'succeeded' && job.bid && <ResultView bid={job.bid} />}
+        {localJob?.status === 'succeeded' && localJob.bid && <ResultView bid={localJob.bid} />}
       </div>
     )
   }
@@ -323,75 +636,593 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
           </span>
         </div>
         {notice && <Banner kind="info">{notice}</Banner>}
+        {liveMissing.length > 0 && (
+          <div className="mb-3">
+            <Banner kind="warn">
+              尚缺 {liveMissing.length} 项资料：{liveMissing.map((m) => m.label).join('、')}。
+              {liveAdvancedMissing.length > 0 &&
+                `其中「${liveAdvancedMissing.map((m) => m.label).join('、')}」需在下方对应的资料区块中逐项填写。`}
+              缺失项会在标书中留下【待填写】占位符。
+            </Banner>
+          </div>
+        )}
+        {schemaLoading && (
+          <p className="mb-2 text-xs text-slate-500">正在根据标书抽取结果判断需要填写的资料字段...</p>
+        )}
+        {schemaError && !schemaLoading && (
+          <Banner kind="warn">
+            自动判断字段级别失败：{schemaError}。以下按通用规则显示（核心字段必填，其余折叠为可选）。
+          </Banner>
+        )}
+        {!schemaLoading && schema && (
+          <p className="mb-2 text-xs text-slate-500">
+            已根据该标书的评分因素、资质要求和格式条目自动标注：
+            <span className="text-rose-400">红色 * 为必填</span>，
+            <span className="text-amber-400">黄色为建议填写</span>，
+            灰色可选字段默认折叠。
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label="公司名称">
-            <input
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
-          <Field label="法定代表人">
-            <input
-              value={legalRep}
-              onChange={(e) => setLegalRep(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
-          <Field label="注册资本">
-            <input
-              value={registeredCapital}
-              onChange={(e) => setRegisteredCapital(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
-          <Field label="成立日期">
-            <input
-              value={establishedDate}
-              onChange={(e) => setEstablishedDate(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
-          <Field label="注册地址">
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
-          <Field label="企业资质（每行一项）">
-            <textarea
-              value={qualifications}
-              onChange={(e) => setQualifications(e.target.value)}
-              rows={2}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
-          <Field label="认证证书（每行一项）">
-            <textarea
-              value={certifications}
-              onChange={(e) => setCertifications(e.target.value)}
-              rows={2}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            />
-          </Field>
+          {levelOf('company_name') !== 'optional' && (
+            <Field
+              label={`公司名称${labelSuffix(levelOf('company_name'))}`}
+              labelClass={labelClass(levelOf('company_name'))}
+              error={liveMissingSet.has('company_name') ? '未填写' : undefined}
+            >
+              <input
+                id="profile-company_name"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
+          {levelOf('legal_representative') !== 'optional' && (
+            <Field
+              label={`法定代表人${labelSuffix(levelOf('legal_representative'))}`}
+              labelClass={labelClass(levelOf('legal_representative'))}
+              error={liveMissingSet.has('legal_representative') ? '未填写' : undefined}
+            >
+              <input
+                id="profile-legal_representative"
+                value={legalRep}
+                onChange={(e) => setLegalRep(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
+          {levelOf('registered_capital') !== 'optional' && (
+            <Field
+              label={`注册资本${labelSuffix(levelOf('registered_capital'))}`}
+              labelClass={labelClass(levelOf('registered_capital'))}
+              error={liveMissingSet.has('registered_capital') ? '未填写' : undefined}
+            >
+              <input
+                id="profile-registered_capital"
+                value={registeredCapital}
+                onChange={(e) => setRegisteredCapital(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
+          {levelOf('established_date') !== 'optional' && (
+            <Field
+              label={`成立日期${labelSuffix(levelOf('established_date'))}`}
+              labelClass={labelClass(levelOf('established_date'))}
+              error={liveMissingSet.has('established_date') ? '未填写' : undefined}
+            >
+              <input
+                id="profile-established_date"
+                value={establishedDate}
+                onChange={(e) => setEstablishedDate(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
+          {levelOf('address') !== 'optional' && (
+            <Field
+              label={`注册地址${labelSuffix(levelOf('address'))}`}
+              labelClass={labelClass(levelOf('address'))}
+              error={liveMissingSet.has('address') ? '未填写' : undefined}
+            >
+              <input
+                id="profile-address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
+          {levelOf('qualifications') !== 'optional' && (
+            <Field
+              label={`企业资质（每行一项）${labelSuffix(levelOf('qualifications'))}`}
+              labelClass={labelClass(levelOf('qualifications'))}
+              error={liveMissingSet.has('qualifications') ? '未填写' : undefined}
+            >
+              <textarea
+                id="profile-qualifications"
+                value={qualifications}
+                onChange={(e) => setQualifications(e.target.value)}
+                rows={2}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
+          {levelOf('certifications') !== 'optional' && (
+            <Field
+              label={`认证证书（每行一项）${labelSuffix(levelOf('certifications'))}`}
+              labelClass={labelClass(levelOf('certifications'))}
+              error={liveMissingSet.has('certifications') ? '未填写' : undefined}
+            >
+              <textarea
+                id="profile-certifications"
+                value={certifications}
+                onChange={(e) => setCertifications(e.target.value)}
+                rows={2}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              />
+            </Field>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="mt-4 text-sm text-sky-400 hover:underline"
-        >
-          {showAdvanced ? '收起高级 JSON 编辑器' : '展开高级 JSON 编辑器（类似项目、人员、财务等复杂结构）'}
-        </button>
-        {showAdvanced && (
-          <textarea
-            value={advancedJson}
-            onChange={(e) => setAdvancedJson(e.target.value)}
-            rows={8}
-            placeholder='{"similar_projects": [...], "personnel": [...], "financials": {...}}'
-            className="mt-2 w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-slate-100"
-          />
+        {/* 结构化区块：按 schema 级别决定是否显示 */}
+        <div className="mt-5 space-y-6 border-t border-slate-800 pt-4">
+          {/* 类似项目业绩 */}
+          {levelOf('similar_projects') !== 'optional' && (
+          <div id="profile-similar_projects">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-200">
+                类似项目业绩
+                {levelOf('similar_projects') === 'required' && (
+                  <span className="ml-1 text-rose-500">*</span>
+                )}
+                {levelOf('similar_projects') === 'recommended' && (
+                  <span className="ml-1 text-amber-400">建议</span>
+                )}
+                <span className="ml-2 text-xs text-slate-500">已填 {projects.length} 条</span>
+                {liveMissingSet.has('similar_projects') && (
+                  <span className="ml-2 text-xs text-amber-400">未填写</span>
+                )}
+              </h3>
+              <Button
+                variant="secondary"
+                onClick={() => setProjects((rows) => [...rows, { ...emptyProject }])}
+              >
+                + 添加业绩
+              </Button>
+            </div>
+            {projects.length === 0 && (
+              <p className="text-xs text-slate-500">点「添加业绩」至少录入 1 个类似项目</p>
+            )}
+            <div className="space-y-3">
+              {projects.map((row, index) => (
+                <div key={index} className="rounded-md border border-slate-700 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs text-slate-400">业绩 {index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setProjects((rows) => rows.filter((_, i) => i !== index))}
+                      className="text-xs text-rose-400 hover:underline"
+                    >
+                      删除
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <Field label="项目名称">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.project_name}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { project_name: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="项目类型">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.project_type}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { project_type: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="项目规模">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.scale}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { scale: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="合同金额">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.contract_amount}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { contract_amount: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="承担角色">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.role}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { role: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="业主单位">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.owner}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { owner: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="开始时间">
+                      <input
+                        className={INPUT_CLASS}
+                        placeholder="如 2022-03"
+                        value={row.start_date}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { start_date: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="完成时间">
+                      <input
+                        className={INPUT_CLASS}
+                        placeholder="如 2024-01"
+                        value={row.completion_date}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { completion_date: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="项目地点">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.location}
+                        onChange={(e) =>
+                          setProjects((rows) => updateRow(rows, index, { location: e.target.value }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
+
+          {/* 项目管理人员 */}
+          {levelOf('personnel') !== 'optional' && (
+          <div id="profile-personnel">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-200">
+                项目管理人员
+                {levelOf('personnel') === 'required' && (
+                  <span className="ml-1 text-rose-500">*</span>
+                )}
+                {levelOf('personnel') === 'recommended' && (
+                  <span className="ml-1 text-amber-400">建议</span>
+                )}
+                <span className="ml-2 text-xs text-slate-500">已填 {persons.length} 人</span>
+                {liveMissingSet.has('personnel') && (
+                  <span className="ml-2 text-xs text-amber-400">未填写</span>
+                )}
+              </h3>
+              <Button
+                variant="secondary"
+                onClick={() => setPersons((rows) => [...rows, { ...emptyPerson }])}
+              >
+                + 添加人员
+              </Button>
+            </div>
+            {persons.length === 0 && (
+              <p className="text-xs text-slate-500">点「添加人员」录入项目经理等关键岗位</p>
+            )}
+            <div className="space-y-3">
+              {persons.map((row, index) => (
+                <div key={index} className="rounded-md border border-slate-700 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs text-slate-400">人员 {index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPersons((rows) => rows.filter((_, i) => i !== index))}
+                      className="text-xs text-rose-400 hover:underline"
+                    >
+                      删除
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <Field label="岗位">
+                      <input
+                        className={INPUT_CLASS}
+                        placeholder="如 项目经理"
+                        value={row.position}
+                        onChange={(e) =>
+                          setPersons((rows) => updateRow(rows, index, { position: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="姓名">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.name}
+                        onChange={(e) =>
+                          setPersons((rows) => updateRow(rows, index, { name: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="执业证书">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.certificate}
+                        onChange={(e) =>
+                          setPersons((rows) => updateRow(rows, index, { certificate: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="安全证书">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.safety_cert}
+                        onChange={(e) =>
+                          setPersons((rows) => updateRow(rows, index, { safety_cert: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="从业年限">
+                      <input
+                        className={INPUT_CLASS}
+                        value={row.experience_years}
+                        onChange={(e) =>
+                          setPersons((rows) => updateRow(rows, index, { experience_years: e.target.value }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
+
+          {/* 财务数据 */}
+          {levelOf('financials') !== 'optional' && (
+          <div id="profile-financials">
+            <h3 className="mb-2 text-sm font-medium text-slate-200">
+              财务数据
+              {levelOf('financials') === 'required' && (
+                <span className="ml-1 text-rose-500">*</span>
+              )}
+              {levelOf('financials') === 'recommended' && (
+                <span className="ml-1 text-amber-400">建议</span>
+              )}
+              {liveMissingSet.has('financials') && (
+                <span className="ml-2 text-xs text-amber-400">未填写</span>
+              )}
+            </h3>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="报告期">
+                <input
+                  className={INPUT_CLASS}
+                  placeholder="如 2024 年度（经审计）"
+                  value={financials.report_period}
+                  onChange={(e) => setFinancials((f) => ({ ...f, report_period: e.target.value }))}
+                />
+              </Field>
+              <Field label="资产总额">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.total_assets}
+                  onChange={(e) => setFinancials((f) => ({ ...f, total_assets: e.target.value }))}
+                />
+              </Field>
+              <Field label="负债总额">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.total_liabilities}
+                  onChange={(e) => setFinancials((f) => ({ ...f, total_liabilities: e.target.value }))}
+                />
+              </Field>
+              <Field label="所有者权益">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.owner_equity}
+                  onChange={(e) => setFinancials((f) => ({ ...f, owner_equity: e.target.value }))}
+                />
+              </Field>
+              <Field label="营业收入">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.operating_revenue}
+                  onChange={(e) => setFinancials((f) => ({ ...f, operating_revenue: e.target.value }))}
+                />
+              </Field>
+              <Field label="净利润">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.net_profit}
+                  onChange={(e) => setFinancials((f) => ({ ...f, net_profit: e.target.value }))}
+                />
+              </Field>
+              <Field label="经营活动现金流">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.operating_cash_flow}
+                  onChange={(e) =>
+                    setFinancials((f) => ({ ...f, operating_cash_flow: e.target.value }))
+                  }
+                />
+              </Field>
+              <Field label="流动比率">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.current_ratio}
+                  onChange={(e) => setFinancials((f) => ({ ...f, current_ratio: e.target.value }))}
+                />
+              </Field>
+              <Field label="速动比率">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.quick_ratio}
+                  onChange={(e) => setFinancials((f) => ({ ...f, quick_ratio: e.target.value }))}
+                />
+              </Field>
+              <Field label="资产负债率">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.debt_ratio}
+                  onChange={(e) => setFinancials((f) => ({ ...f, debt_ratio: e.target.value }))}
+                />
+              </Field>
+              <Field label="净资产收益率">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.return_on_equity}
+                  onChange={(e) =>
+                    setFinancials((f) => ({ ...f, return_on_equity: e.target.value }))
+                  }
+                />
+              </Field>
+              <Field label="审计意见">
+                <input
+                  className={INPUT_CLASS}
+                  value={financials.audit_opinion}
+                  onChange={(e) => setFinancials((f) => ({ ...f, audit_opinion: e.target.value }))}
+                />
+              </Field>
+            </div>
+          </div>
+          )}
+
+          {/* 联系方式：始终展示，仅"电话"标为建议，其余子项不标记 */}
+          <div id="profile-contact">
+            <h3 className="mb-2 text-sm font-medium text-slate-200">
+              联系方式
+              {liveMissingSet.has('contact') && (
+                <span className="ml-2 text-xs text-amber-400">未填写</span>
+              )}
+            </h3>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="通讯地址">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.address}
+                  onChange={(e) => setContact((c) => ({ ...c, address: e.target.value }))}
+                />
+              </Field>
+              <Field label="邮政编码">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.postal_code}
+                  onChange={(e) => setContact((c) => ({ ...c, postal_code: e.target.value }))}
+                />
+              </Field>
+              <Field label="电话（建议）" labelClass="text-amber-400">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.phone}
+                  onChange={(e) => setContact((c) => ({ ...c, phone: e.target.value }))}
+                />
+              </Field>
+              <Field label="传真">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.fax}
+                  onChange={(e) => setContact((c) => ({ ...c, fax: e.target.value }))}
+                />
+              </Field>
+              <Field label="电子邮箱">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.email}
+                  onChange={(e) => setContact((c) => ({ ...c, email: e.target.value }))}
+                />
+              </Field>
+              <Field label="网址">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.website}
+                  onChange={(e) => setContact((c) => ({ ...c, website: e.target.value }))}
+                />
+              </Field>
+              <Field label="开户银行">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.bank}
+                  onChange={(e) => setContact((c) => ({ ...c, bank: e.target.value }))}
+                />
+              </Field>
+              <Field label="银行账号">
+                <input
+                  className={INPUT_CLASS}
+                  value={contact.bank_account}
+                  onChange={(e) => setContact((c) => ({ ...c, bank_account: e.target.value }))}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+
+        {/* optional 字段折叠区：schema 标记为"标书未提及"的字段 */}
+        {schema && (
+          <div className="mt-4 border-t border-slate-800 pt-3">
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300"
+              onClick={() => setOptionalOpen((v) => !v)}
+            >
+              <span>{optionalOpen ? '▼' : '▶'}</span>
+              <span>
+                {optionalOpen ? '收起' : '展开'} 标书未提及的可选字段
+              </span>
+              {!optionalOpen && (
+                <span className="text-slate-600">
+                  （如认证证书、完整联系方式等贵司情况可酌情补充）
+                </span>
+              )}
+            </button>
+            {optionalOpen && (
+              <div className="mt-3 grid grid-cols-1 gap-4 rounded-md border border-dashed border-slate-700/50 bg-slate-800/20 p-3 md:grid-cols-2">
+                {(['company_name','legal_representative','registered_capital','established_date','address','qualifications','certifications'] as const).map(
+                  (key) => {
+                    if (levelOf(key) !== 'optional') return null
+                    const item = schemaItemOf(key)
+                    const hint = item?.matched ? `匹配到：${item.reason}` : item?.reason ?? ''
+                    return (
+                      <div key={key} className="text-xs text-slate-500">
+                        <span className="text-slate-400">{item?.label ?? key}</span>
+                        {hint && (
+                          <span className="ml-2 text-slate-600">· {hint}</span>
+                        )}
+                      </div>
+                    )
+                  },
+                )}
+                {(['similar_projects','personnel','financials'] as const).map(
+                  (key) => {
+                    if (levelOf(key) !== 'optional') return null
+                    const item = schemaItemOf(key)
+                    const hint = item?.reason ?? ''
+                    return (
+                      <div key={key} className="text-xs text-slate-500">
+                        <span className="text-slate-400">{item?.label ?? key}</span>
+                        {hint && (
+                          <span className="ml-2 text-slate-600">· {hint}</span>
+                        )}
+                      </div>
+                    )
+                  },
+                )}
+              </div>
+            )}
+          </div>
         )}
       </Card>
 
@@ -457,6 +1288,50 @@ export function WritePage({ initialDocId, onRunningChange, onWritten }: WritePag
             取消
           </Button>
           <Button onClick={submit}>确认</Button>
+        </div>
+      </Modal>
+
+      <Modal open={precheckOpen} title="投标人资料不完整" onClose={() => setPrecheckOpen(false)}>
+        <div className="space-y-2 text-sm text-slate-300">
+          <p>
+            以下 {missingFields.length} 项资料未填写，生成后这些位置会留下【待填写】占位符。点击任意一项可跳到对应填写位置。
+          </p>
+          <ul className="space-y-1">
+            {missingFields.map(({ key, label }) => {
+              const isAdvanced = ADVANCED_FIELD_KEYS.has(String(key))
+              return (
+                <li
+                  key={String(key)}
+                  className="flex items-center justify-between gap-3 rounded-md border border-slate-700 px-3 py-1.5"
+                >
+                  <span className="text-amber-400">{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => goToField(key)}
+                    className="text-xs text-sky-400 hover:underline"
+                  >
+                    去填写（{isAdvanced ? '下方资料区块' : '上方输入框'}）
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          <p className="text-xs text-slate-500">
+            也可以从「资料库」一键载入已保存的资料；或者跳过，生成后再补写。
+          </p>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setPrecheckOpen(false)}>
+            关闭
+          </Button>
+          <Button
+            onClick={() => {
+              setPrecheckOpen(false)
+              setConfirmOpen(true)
+            }}
+          >
+            仍然继续
+          </Button>
         </div>
       </Modal>
     </div>

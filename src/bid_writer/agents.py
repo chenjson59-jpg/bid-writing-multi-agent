@@ -48,18 +48,25 @@ def plan_sections(
     target_words: int,
     max_sections: int,
     caller: ModelCaller,
+    schema: dict | None = None,
 ) -> list[SectionPlan]:
-    """生成并归一化章节大纲（A18）。"""
-    plans = _planner_llm(tender, profile, target_words, max_sections, caller)
+    """生成并归一化章节大纲（A18）。schema 透传给 planner prompt。"""
+    plans = _planner_llm(tender, profile, target_words, max_sections, caller, schema=schema)
     if not plans:
         plans = _fallback_outline(tender, target_words)
-    return _normalize_outline(plans, tender, max_sections)
+    plans = _normalize_outline(plans, tender, max_sections)
+    if not plans:
+        raise BidWriteError(
+            "大纲规划失败：招标文件未抽取到任何评分因素或投标文件格式条目，"
+            "请确认 PDF 内容包含评分办法和投标文件格式，或尝试上传标准的工程施工类招标文件。"
+        )
+    return plans
 
 
-def _planner_llm(tender, profile, target_words, max_sections, caller) -> list[SectionPlan]:
+def _planner_llm(tender, profile, target_words, max_sections, caller, *, schema: dict | None = None) -> list[SectionPlan]:
     """LLM 策划（8.1.1），单条非法跳过，整体异常返回空列表。"""
     try:
-        messages = build_planner_prompt(tender, profile, target_words, max_sections)
+        messages = build_planner_prompt(tender, profile, target_words, max_sections, schema=schema)
         raw = _generate_json(caller, messages)
     except Exception:  # noqa: BLE001 - 策划失败回退确定性大纲
         return []
@@ -147,6 +154,19 @@ def _fallback_outline(tender, target_words: int) -> list[SectionPlan]:
     if other_factors:
         plans.append(_new_plan("其他评分因素", STRATEGY_GENERATE, target_words, other_factors, ""))
 
+    # 通用兜底骨架：既不是工程施工类、又没有抽出任何结构化数据时，
+    # 输出一套服务/活动类标书的基础章节，避免 planner 成功但 0 章节静默通过。
+    if not plans:
+        generic_sections = [
+            ("投标函", STRATEGY_GENERATE),
+            ("项目理解与服务方案", STRATEGY_GENERATE),
+            ("项目管理机构", STRATEGY_GENERATE),
+            ("服务承诺与保障措施", STRATEGY_GENERATE),
+            ("报价", STRATEGY_PLACEHOLDER),
+        ]
+        for title, strategy in generic_sections:
+            plans.append(_new_plan(title, strategy, target_words, [], ""))
+
     return _dedup_by_title(plans)
 
 
@@ -213,7 +233,19 @@ def _title_covered(plans: list[SectionPlan], title: str) -> bool:
 
 
 def _map_scoring_factors(plans: list[SectionPlan], tender) -> None:
-    """评分因素映射（8.1.4.4），未归属的因素留待覆盖报告标记。"""
+    """评分因素映射（8.1.4.4）。
+
+    评分因素必须落到「需要生成正文」的章节，不能落在封面/一览表/偏离表等
+    占位表单上（否则覆盖统计虚高、正文却没有对应内容）。
+    规则：
+      1. 已由策划分配的因素保持不变；
+      2. 因素名出现在章节标题中时，若该章节非 generate 且非报价类，
+         则将该章节升级为 generate 并归属；
+      3. 否则仅在 generate 章节中按分类关键词匹配；
+      4. 仍无归属的有分值因素，新建一个 generate 章节承载。
+    """
+    max_order = max((p.order for p in plans if p.order < 10**6), default=0)
+
     for factor in tender.evaluation_factors:
         name = factor.get("name", "")
         if not name:
@@ -221,28 +253,49 @@ def _map_scoring_factors(plans: list[SectionPlan], tender) -> None:
         if any(name in p.scoring_factors for p in plans):
             continue
 
-        matched = False
-        for plan in plans:
-            if normalize_title(name) in normalize_title(plan.title):
-                plan.scoring_factors.append(name)
-                matched = True
-                break
-        if matched:
+        category = factor.get("category", "其他")
+        is_quote = category == "报价"
+
+        # 标题直接命中
+        title_target = next(
+            (p for p in plans if normalize_title(name) in normalize_title(p.title)),
+            None,
+        )
+        if title_target is not None:
+            if title_target.strategy != STRATEGY_GENERATE and not is_quote:
+                title_target.strategy = STRATEGY_GENERATE
+            title_target.scoring_factors.append(name)
             continue
 
         if factor.get("score") is None:
             continue
-        for keyword in _category_keywords(factor.get("category", "其他")):
-            target = next((p for p in plans if keyword in p.title), None)
+
+        # 分类关键词：只在 generate 章节中查找，避免命中「商务技术文件封面」
+        keyword_target = None
+        for keyword in _category_keywords(category):
+            target = next(
+                (p for p in plans
+                 if p.strategy == STRATEGY_GENERATE and keyword in p.title),
+                None,
+            )
             if target is not None:
-                target.scoring_factors.append(name)
+                keyword_target = target
                 break
+        if keyword_target is not None:
+            keyword_target.scoring_factors.append(name)
+            continue
+
+        # 兜底：为该因素新建正文生成章节
+        max_order += 1
+        plan = _new_plan(name, STRATEGY_GENERATE, 1200, [name], name)
+        plan.order = max_order
+        plans.append(plan)
 
 
 def _category_keywords(category: str) -> tuple[str, ...]:
     return {
-        "技术": ("施工组织设计", "技术"),
-        "商务": ("项目管理机构", "商务"),
+        "技术": ("技术方案", "施工组织设计", "技术", "实施方案", "方案"),
+        "商务": ("商务", "业绩", "团队", "管理", "项目管理机构", "服务"),
         "报价": ("投标报价", "报价"),
     }.get(category, ("其他评分", "其他资料", "其他"))
 
@@ -279,14 +332,15 @@ def section_agent(
     min_score: int,
     max_revisions: int,
     caller: ModelCaller,
+    schema: dict | None = None,
 ) -> SectionDraft:
-    """单个章节的写作—评审—修订循环（8.2.1）。"""
+    """单个章节的写作—评审—修订循环（8.2.1）。schema 透传给 prompt builder。"""
     if plan.strategy == STRATEGY_PLACEHOLDER:
         markdown = placeholder_section(plan)
         review = ReviewResult(score=100)
         return SectionDraft(plan, markdown, review, 100, 100, 0, retrieved)
 
-    draft = _writer(plan, tender, profile, retrieved, caller)
+    draft = _writer(plan, tender, profile, retrieved, caller, schema=schema)
     review = _reviewer(plan, draft, caller)
     score_before = review.score
 
@@ -315,8 +369,8 @@ def placeholder_section(plan: SectionPlan) -> str:
     return f"【待填写：{plan.title}】\n"
 
 
-def _writer(plan, tender, profile, retrieved, caller) -> str:
-    messages = build_writer_prompt(plan, tender, profile, retrieved)
+def _writer(plan, tender, profile, retrieved, caller, *, schema: dict | None = None) -> str:
+    messages = build_writer_prompt(plan, tender, profile, retrieved, schema=schema)
     return _generate_text(caller, messages)
 
 

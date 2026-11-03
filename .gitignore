@@ -15,6 +15,9 @@ chroma_db/
 logs/
 *.log
 dump.rdb
+# 临时调试脚本与输出
+tmp_output/
+_inspect_docx.py
 
 # 招标文件原文（不提交到公开仓库）
 招标文件/
@@ -24,10 +27,18 @@ DEMO待完善清单.md
 examples/demo/录屏操作卡.md
 # 面试准备材料（不随项目发布）
 面试问答.md
+# 线上演示手册（含服务器地址与凭据位置）
+线上演示手册.md
+# 问题合集（含服务器地址，仅本地使用）
+问题合集.md
+# 桌面端一键启动脚本（含服务器地址）
+启动标书桌面端.ps1
+启动标书桌面端.bat
 
 # 前端
 node_modules/
 frontend/dist/
+frontend/release/
 .electron-cache/
 
 # 系统

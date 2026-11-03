@@ -9,24 +9,54 @@ import re
 from pathlib import Path
 
 from src.parsing.models import ParseStage, TocEntry
-from src.parsing.toc import read_toc
+from src.parsing.toc import read_toc, reconstruct_toc
 
 # 文档指纹行（形如 32 位 hex 串 + 时间戳）
 _FINGERPRINT_RE = re.compile(r"^[0-9a-f]{20,}-\d{10,}$")
 # 纯页码行
 _PAGE_NUMBER_RE = re.compile(r"^\s*[-—–]?\s*\d{1,4}\s*[-—–]?\s*$")
+# 页眉/页脚区域（按页高比例），仅在该区域内剔除纯页码，避免误删表格数字
+_MARGIN_RATIO = 0.07
 
 
 def _clean_page_text(text: str) -> str:
-    """清洗单页文本：丢弃指纹行与纯页码，收敛空行。"""
+    """纯文本清洗：丢弃指纹行，收敛空行。
+
+    页码需要坐标信息才能与表格内数字区分，见 `_page_text`。
+    """
     lines: list[str] = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
             continue
-        if _FINGERPRINT_RE.match(line) or _PAGE_NUMBER_RE.match(line):
+        if _FINGERPRINT_RE.match(line):
             continue
         lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _page_text(page) -> str:
+    """按行坐标清洗单页文本：只剔除页眉/页脚区域内的纯页码。"""
+    height = page.rect.height or 1.0
+    top = height * _MARGIN_RATIO
+    bottom = height * (1 - _MARGIN_RATIO)
+
+    lines: list[str] = []
+    for block in page.get_text("dict").get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            text = "".join(
+                span.get("text", "") for span in line.get("spans", [])
+            ).strip()
+            if not text:
+                continue
+            if _FINGERPRINT_RE.match(text):
+                continue
+            y0, y1 = line["bbox"][1], line["bbox"][3]
+            if (y0 <= top or y1 >= bottom) and _PAGE_NUMBER_RE.match(text):
+                continue
+            lines.append(text)
     return "\n".join(lines).strip()
 
 
@@ -63,20 +93,25 @@ def parse_local(doc, images_dir: Path | None = None) -> ParseStage:
 
     pages: dict[int, str] = {}
     for page_no in range(1, page_count + 1):
-        text = _clean_page_text(doc.load_page(page_no - 1).get_text())
+        text = _page_text(doc.load_page(page_no - 1))
         if text:
             pages[page_no] = text
 
     warnings: list[str] = []
+    structure_source = "bookmark" if entries else "page_order"
     if not entries:
-        warnings.append("PDF 无书签，章节结构无法还原")
+        entries = reconstruct_toc(pages, page_count)
+        if entries:
+            structure_source = "toc_page"
+            warnings.append("PDF 无书签，已从目录页还原章节结构")
+        else:
+            warnings.append("PDF 无书签，章节结构无法还原")
 
     images: list[str] = []
     if images_dir is not None:
         images, img_warnings = _extract_images(doc, images_dir)
         warnings.extend(img_warnings)
 
-    structure_source = "bookmark" if entries else "page_order"
     return ParseStage(
         page_count=page_count,
         entries=entries,

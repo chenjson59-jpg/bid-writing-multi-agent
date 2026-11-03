@@ -17,8 +17,28 @@ TRUE_VALUES = {"是", "true", "yes", "y", "1", "需要", "必须", "须", "要�
 FALSE_VALUES = {"否", "false", "no", "n", "0", "无需", "不需要", ""}
 
 # ---- 类别关键词（A11.5.4），顺序即匹配优先级 ----
-QUALIFICATION_CATEGORIES = ("资质", "财务", "业绩", "信誉", "人员")
-EVALUATION_CATEGORIES = ("形式评审", "资格评审", "响应性评审", "商务", "技术", "报价")
+# 覆盖工程施工 / 货物采购 / 服务类 / 咨询类 / 活动类 五大类常见采购场景
+QUALIFICATION_CATEGORIES = (
+    # 工程类
+    "资质", "安全生产许可", "项目经理",
+    # 通用
+    "财务", "业绩", "信誉", "信用",
+    # 服务/咨询/活动类
+    "人员", "团队", "师资", "教练", "讲师",
+    "案例", "类似项目", "服务经验",
+    "设备", "办公场所", "注册资金",
+    # 其他兜底
+)
+EVALUATION_CATEGORIES = (
+    "形式评审", "资格评审", "响应性评审",
+    # 通用评审维度
+    "商务", "技术", "报价",
+    # 服务/咨询类
+    "服务方案", "项目管理", "实施方案",
+    "培训方案", "课程体系", "活动方案",
+    "团队配置", "师资配置",
+    # 兜底
+)
 
 # 基础字段可能被包在这些子对象里（A11.5.5）
 BASIC_CONTAINERS = ("basic", "info", "project", "basic_info", "project_info")
@@ -32,6 +52,19 @@ BASIC_SCALAR_KEYS = (
 )
 
 NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+# 与 api/schemas.py 的字段上限保持一致：抽取初稿必须先合法，人工保存时才不会被 422 拒掉
+MAX_NAME = 100
+MAX_QUOTE = 2000
+MAX_REQUIREMENT = 2000
+MAX_TITLE = 200
+MAX_CONTENT = 2000
+
+
+def clip_text(value: Any, limit: int) -> str:
+    """按字段上限截断超长文本（保留前 limit 个字符）。"""
+    text = str(value or "")
+    return text if len(text) <= limit else text[:limit]
 
 
 def normalize_number(value: Any) -> float | None:
@@ -102,9 +135,9 @@ def _normalize_factor(value: Any) -> dict[str, Any] | None:
         return None
     return {
         "category": normalize_category(value.get("category"), EVALUATION_CATEGORIES),
-        "name": name,
+        "name": clip_text(name, MAX_NAME),
         "score": normalize_number(value.get("score")),
-        "source_quote": str(value.get("source_quote") or ""),
+        "source_quote": clip_text(value.get("source_quote"), MAX_QUOTE),
     }
 
 
@@ -117,8 +150,8 @@ def _normalize_qualification(value: Any) -> dict[str, Any] | None:
         return None
     return {
         "category": normalize_category(value.get("category"), QUALIFICATION_CATEGORIES),
-        "requirement": requirement,
-        "source_quote": str(value.get("source_quote") or ""),
+        "requirement": clip_text(requirement, MAX_REQUIREMENT),
+        "source_quote": clip_text(value.get("source_quote"), MAX_QUOTE),
         "thresholds": normalize_str_list(value.get("thresholds")),
     }
 
@@ -130,7 +163,10 @@ def _normalize_format_item(value: Any) -> dict[str, Any] | None:
     title = str(value.get("title") or "").strip()
     if not title:
         return None
-    return {"title": title, "content": str(value.get("content") or "")}
+    return {
+        "title": clip_text(title, MAX_TITLE),
+        "content": clip_text(value.get("content"), MAX_CONTENT),
+    }
 
 
 def _normalize_score_row(value: Any) -> dict[str, Any] | None:
@@ -195,11 +231,13 @@ def normalize_chapter_extraction(raw: Any) -> tuple[dict[str, Any], list[str]]:
         if i is not None
     ]
 
-    # 5. contract / tech 块
+    # 5. contract / tech / service_spec 块
     contract = raw.get("contract") if isinstance(raw.get("contract"), dict) else {}
     tech = raw.get("tech") if isinstance(raw.get("tech"), dict) else {}
+    service_spec = raw.get("service_spec") if isinstance(raw.get("service_spec"), dict) else {}
     highlights = normalize_str_list(contract.get("highlights"))
     requirements = normalize_str_list(tech.get("requirements"))
+    service_requirements = normalize_str_list(service_spec.get("requirements"))
 
     return {
         "basic": basic,
@@ -212,6 +250,7 @@ def normalize_chapter_extraction(raw: Any) -> tuple[dict[str, Any], list[str]]:
         "bid_format": {"items": bid_items},
         "contract": {"highlights": highlights},
         "tech": {"requirements": requirements},
+        "service_spec": {"requirements": service_requirements},
     }, warnings
 
 
@@ -224,6 +263,7 @@ def _empty_extraction() -> dict[str, Any]:
         "bid_format": {"items": []},
         "contract": {"highlights": []},
         "tech": {"requirements": []},
+        "service_spec": {"requirements": []},
     }
 
 
@@ -249,6 +289,7 @@ class TenderDocument:
     bid_format_items: list[dict[str, Any]] = field(default_factory=list)
     contract_highlights: list[str] = field(default_factory=list)
     technical_requirements: list[str] = field(default_factory=list)
+    service_requirements: list[str] = field(default_factory=list)
     extraction_meta: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

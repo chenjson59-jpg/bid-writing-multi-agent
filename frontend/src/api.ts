@@ -11,6 +11,7 @@ import type {
   HealthInfo,
   JobView,
   ParseAccepted,
+  ProfileSchemaResponse,
   SectionDetail,
   SectionInfo,
   TaskHistoryItem,
@@ -50,11 +51,13 @@ export function describeError(e: unknown): string {
 }
 
 // 打包后被 Electron 以 file:// 加载时，相对路径 /api 无法命中后端，
-// 此时回退到本地 FastAPI 绝对地址；dev server 下仍走 vite proxy。
+// 此时回退到远程 FastAPI 绝对地址；dev server 下仍走 vite proxy。
+// 构建时可通过 VITE_API_BASE 覆盖（如切回本地后端或换域名）。
 const API_BASE =
-  typeof window !== 'undefined' && window.location.protocol === 'file:'
-    ? 'http://localhost:8001'
-    : ''
+  (import.meta.env.VITE_API_BASE as string | undefined) ||
+  (typeof window !== 'undefined' && window.location.protocol === 'file:'
+    ? 'http://47.117.189.10:8001'
+    : '')
 
 function apiUrl(path: string): string {
   return API_BASE + path
@@ -293,6 +296,11 @@ export function updateProfile(
 
 export async function deleteProfile(id: number): Promise<void> {
   await request(`/api/profiles/${id}`, { method: 'DELETE' })
+}
+
+// 根据抽取结果推断哪些投标人资料字段必填 / 建议 / 可选
+export async function getProfileSchema(docId: string): Promise<ProfileSchemaResponse> {
+  return request(`/api/documents/${docId}/profile-schema`)
 }
 
 // 产物下载走浏览器导航，由响应头决定附件或内联；预览场景直接 fetch 文本。

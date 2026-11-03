@@ -1,17 +1,20 @@
-import { useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { describeError, uploadParse } from '../api'
-import { usePolling } from '../hooks'
+import type { JobView } from '../types'
 import { Banner, Button, Card, EmptyState, Field, ProgressBar, Spinner } from '../ui'
 
 const MAX_MB = 200
 
 interface UploadPageProps {
-  onRunningChange: (running: boolean) => void
+  /** 页面提交 parse 任务时调这个，把 jobId 上交给 App 全局 poll */
+  onRegisterJob: (jobId: string | null) => void
+  /** App 全局 poll 回来的最新任务状态（切 tab 也不会丢） */
+  activeJob: JobView | null
   onUploaded: () => void
   onWrite: (docId: string) => void
 }
 
-export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageProps) {
+export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: UploadPageProps) {
   const [file, setFile] = useState<File | null>(null)
   const [parser, setParser] = useState<'auto' | 'cloud' | 'local'>('auto')
   const [extract, setExtract] = useState(true)
@@ -19,14 +22,20 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
   const [force, setForce] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [localJobId, setLocalJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const { job } = usePolling(jobId, (doneJob) => {
-    onRunningChange(false)
-    if (doneJob.status === 'succeeded') onUploaded()
-  })
+  // 任务成功时刷新文档列表计数（任务完成后页面可能已经切走）
+  const fireRef = useRef(false)
+  useEffect(() => {
+    if (!activeJob || !localJobId) return
+    if (activeJob.job_id !== localJobId) return
+    if (activeJob.status === 'succeeded' && !fireRef.current) {
+      fireRef.current = true
+      onUploaded()
+    }
+  }, [activeJob?.status, activeJob?.job_id, localJobId, onUploaded])
 
   function pickFile(f: File | null) {
     setError(null)
@@ -52,7 +61,6 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
     setError(null)
     setUploading(true)
     setProgress(0)
-    onRunningChange(true)
     const controller = new AbortController()
     abortRef.current = controller
     try {
@@ -62,14 +70,15 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
         setProgress,
         controller.signal,
       )
-      setJobId(accepted.job_id)
+      setLocalJobId(accepted.job_id)
+      onRegisterJob(accepted.job_id)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         setError(null)
       } else {
         setError(describeError(e))
       }
-      onRunningChange(false)
+      onRegisterJob(null)
     } finally {
       setUploading(false)
       abortRef.current = null
@@ -79,10 +88,13 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
   function cancelUpload() {
     abortRef.current?.abort()
     setUploading(false)
-    onRunningChange(false)
+    setLocalJobId(null)
+    onRegisterJob(null)
   }
 
-  const done = job && job.status === 'succeeded'
+  // activeJob 是 App 全局 poll 的最新状态；如果它就是我们这个任务，直接用
+  const job = activeJob && localJobId && activeJob.job_id === localJobId ? activeJob : null
+  const done = !!job && job.status === 'succeeded'
 
   return (
     <div className="space-y-4">
@@ -90,7 +102,7 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
 
       {error && <Banner kind="error">{error}</Banner>}
 
-      {!jobId && (
+      {!localJobId && (
         <Card>
           <div
             className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-700 py-12"
@@ -159,7 +171,7 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
         </Card>
       )}
 
-      {jobId && (
+      {localJobId && (
         <Card title="任务进度">
           {job ? (
             <div className="space-y-3">
@@ -213,7 +225,7 @@ export function UploadPage({ onRunningChange, onUploaded, onWrite }: UploadPageP
         </Card>
       )}
 
-      {!file && !jobId && <EmptyState title="尚未选择文件" hint="支持拖拽或点击选择 PDF 文件" />}
+      {!file && !localJobId && <EmptyState title="尚未选择文件" hint="支持拖拽或点击选择 PDF 文件" />}
     </div>
   )
 }

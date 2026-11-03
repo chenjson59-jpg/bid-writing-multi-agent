@@ -23,13 +23,21 @@ _EXTRACTION = {
 
 
 def _pdf_bytes() -> bytes:
-    """生成带书签的两章 PDF，保证本地解析能切出章节。"""
+    """生成带书签的三章 PDF，保证本地解析能切出章节。"""
     doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text((72, 72), "第一章 投标邀请：投标截止时间 2026 年 1 月 1 日")
     page = doc.new_page()
     page.insert_text((72, 72), "第二章 评标办法：投标报价 30 分")
-    doc.set_toc([[1, "第一章 投标邀请", 1], [1, "第二章 评标办法", 2]])
+    page = doc.new_page()
+    page.insert_text((72, 72), "第三章 投标文件格式：投标函")
+    doc.set_toc(
+        [
+            [1, "第一章 投标邀请", 1],
+            [1, "第二章 评标办法", 2],
+            [1, "第三章 投标文件格式", 3],
+        ]
+    )
     content = doc.tobytes()
     doc.close()
     return content
@@ -162,8 +170,9 @@ def test_parse_extract_bid_and_download(client, monkeypatch):
 
     report = client.get(f"/api/bids/{bid_id}/files/report.json").json()
     coverage = {c["name"]: c["covered"] for c in report["evaluation_coverage"]}
-    assert coverage == {"投标报价": True, "技术方案": False}
-    assert "评分因素「技术方案」未覆盖" in report["warnings"]
+    # 修复后：有分值的评分因素均会被归属到 generate 章节，不再遗漏
+    assert coverage == {"投标报价": True, "技术方案": True}
+    assert not any("未覆盖" in w for w in report["warnings"])
 
     assert (
         client.get(

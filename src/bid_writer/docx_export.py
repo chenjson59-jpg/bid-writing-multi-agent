@@ -45,16 +45,34 @@ def markdown_to_docx(
     _set_default_style(doc)
 
     body = markdown
+    toc_entries: list[tuple[int, str]] = []
     if project_name or bidder:
         _add_cover(doc, project_name, bidder, date_text)
         doc.add_page_break()
-        _add_toc(doc)
+        body = _body_without_front_matter(markdown)
+        # 先从正文中抽出要进目录的 (层级, 标题) —— 只抓 Heading 2/3（投标文件正文结构）
+        toc_entries = _extract_toc_entries(body)
+        _add_toc(doc, toc_entries)
         doc.add_page_break()
         _apply_header_footer(doc, project_name)
-        body = _body_without_front_matter(markdown)
 
     _render_body(doc, body)
     doc.save(str(output_path))
+
+
+def _extract_toc_entries(markdown: str) -> list[tuple[int, str]]:
+    """从正文中提取 (heading_level, title) 对，用于手写静态目录兜底。
+    投标文件里只收录二级及以下标题（H1 是文档总标题已在封面）。"""
+    entries: list[tuple[int, str]] = []
+    for line in markdown.splitlines():
+        m = _HEADING_RE.match(line.strip())
+        if not m:
+            continue
+        level = len(m.group(1))
+        if level < 2:
+            continue
+        entries.append((level, m.group(2).strip()))
+    return entries
 
 
 def _render_body(doc: Document, markdown: str) -> None:
@@ -130,17 +148,41 @@ def _add_cover(doc: Document, project_name: str, bidder: str, date_text: str) ->
     _set_font(when.add_run(date_text or "【待填写：日期】"), "宋体", 14, bold=False)
 
 
-def _add_toc(doc: Document) -> None:
-    """自动目录页：插入 TOC 域，并让 Word 打开时自动更新。"""
+def _add_toc(doc: Document, entries: list[tuple[int, str]]) -> None:
+    """目录页：手写静态条目（打开即见）+ 自动 TOC 域（Word 更新后精确页码覆盖）。
+
+    两个层次缺一不可：
+    - 手写静态目录：用户打开就看得到完整章节列表，不受 Word 安全策略/域更新影响
+    - TOC 域：用户按 F9 更新后，Word 用实际页码替换手写占位符，变成可点跳转的专业目录
+    """
     heading = doc.add_paragraph()
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _set_font(heading.add_run("目 录"), "黑体", 16, bold=True)
 
-    paragraph = doc.add_paragraph()
+    # 手写静态条目：二级标题顶格，三级缩进两格，四级缩进四格；页码用点号填充
+    for level, title in entries:
+        para = doc.add_paragraph()
+        indent = (level - 2) * 2  # level 2 → 0, level 3 → 2, level 4 → 4
+        prefix = "　" * indent    # 全角空格缩进
+        run = para.add_run(f"{prefix}● {title}")
+        _set_font(run, "宋体", 11, bold=(level == 2))
+        para.paragraph_format.space_before = Pt(2)
+        para.paragraph_format.space_after = Pt(2)
+
+    # 空一行分隔手写目录和 TOC 域（视觉上标注「此处可更新」）
+    doc.add_paragraph()
+    hint = doc.add_paragraph()
+    hint.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    _set_font(
+        hint.add_run("（提示：在 Word 中右键本页目录区域 →「更新域」或按 F9，可生成带精确页码的可点击目录）"),
+        "宋体", 9, bold=False,
+    )
+    # TOC 域占位：Word 打开后按 F9 会替换整个段落为自动目录
+    toc_para = doc.add_paragraph()
     _add_field(
-        paragraph,
+        toc_para,
         'TOC \\o "1-3" \\h \\z \\u',
-        "（在 Word 中右键「更新域」或按 F9 生成目录）",
+        "（自动目录区域——F9 更新后显示）",
     )
     _enable_update_fields(doc)
 

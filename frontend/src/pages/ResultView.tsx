@@ -503,7 +503,7 @@ export function ResultView({
             下载覆盖报告
           </Button>
           {desktop && data.docx_path && (
-            <Button variant="secondary" onClick={() => openPath(data.docx_path)}>
+            <Button variant="secondary" onClick={() => openPath(bidFileUrl(id, 'bid.docx', true))}>
               打开 Word
             </Button>
           )}

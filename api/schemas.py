@@ -119,7 +119,8 @@ class ExtractionFactor(BaseModel):
     category: str = Field(default="其他", max_length=20)
     name: str = Field(min_length=1, max_length=100)
     score: float | None = Field(default=None, ge=0, le=1000)
-    source_quote: str = Field(default="", max_length=500)
+    # 原文依据常是整段评分说明，500 字符会拒掉真实抽取结果；与 content 同上限
+    source_quote: str = Field(default="", max_length=2000)
 
     @field_validator("category", "name", "source_quote")
     @classmethod
@@ -159,8 +160,8 @@ class ExtractionQualification(BaseModel):
     """资格条件：门槛要求，写前提示依据。"""
 
     category: str = Field(default="其他", max_length=20)
-    requirement: str = Field(min_length=1, max_length=500)
-    source_quote: str = Field(default="", max_length=500)
+    requirement: str = Field(min_length=1, max_length=2000)
+    source_quote: str = Field(default="", max_length=2000)
     thresholds: list[str] = []
 
     @field_validator("category", "requirement", "source_quote")
@@ -297,3 +298,22 @@ class BidderProfileUpsert(BaseModel):
         if not stripped:
             raise ValueError("公司名不能为空")
         return stripped
+
+
+# ---------- 投标人资料 schema（§7.6） ----------
+class ProfileSchemaItem(BaseModel):
+    """单个资料字段的推断结果。"""
+
+    level: str = Field(pattern=r"^(required|recommended|optional)$")
+    label: str
+    reason: str
+    matched: bool = False
+
+
+class ProfileSchemaResponse(BaseModel):
+    """整份标书的投标人资料 schema：按字段名索引。"""
+
+    doc_id: str
+    doc_type: str = ""
+    fields: dict[str, ProfileSchemaItem]
+    inferred_from: list[str] = Field(default_factory=list)
