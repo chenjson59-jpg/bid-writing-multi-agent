@@ -1,4 +1,4 @@
-"""投标编写阶段的数据模型（核心算法 A18–A20 的结构定义）。
+"""投标编写阶段的数据模型（docs/algorithms.md A18–A20 的结构定义）。
 
 涵盖：章节计划、评审结果、章节草稿、投标人资料、编写参数与覆盖报告，
 以及标题归一化与占位符识别等跨模块复用的小工具。
@@ -9,7 +9,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-# ---- 章节策略（核心算法 8.1.3）----
+# ---- 章节策略（docs/algorithms.md 8.1.3）----
 STRATEGY_GENERATE = "generate"
 STRATEGY_FILL_TEMPLATE = "fill_template"
 STRATEGY_PLACEHOLDER = "placeholder"
@@ -29,10 +29,10 @@ _PLACEHOLDER_KEYWORDS = (
 )
 _FILL_KEYWORDS = ("投标函", "授权委托书", "身份证明", "承诺", "声明")
 
-# ---- 占位符（核心算法 8.4.1）----
+# ---- 占位符（docs/algorithms.md 8.4.1）----
 PLACEHOLDER_RE = re.compile(r"【待填写[^】]*】")
 
-# ---- 投标人资料字段 → 缺失中文名（核心算法 8.4.2）----
+# ---- 投标人资料字段 → 缺失中文名（docs/algorithms.md 8.4.2）----
 PROFILE_FIELD_LABELS: dict[str, str] = {
     "company_name": "公司名称",
     "legal_representative": "法定代表人",
@@ -93,7 +93,7 @@ def extract_placeholders(text: str) -> list[str]:
 
 @dataclass
 class BidderProfile:
-    """投标人资料（开发文档 §9）。
+    """投标人资料（docs/api-contract.md §9）。
 
     `notes` 不参与缺失判定；`contact` 与 `financials` 允许为 `None`。
     """
@@ -147,7 +147,7 @@ class BidderProfile:
 
 @dataclass
 class SectionPlan:
-    """一个章节的写作计划（核心算法 8.1.1）。"""
+    """一个章节的写作计划（docs/algorithms.md 8.1.1）。"""
 
     id: str
     title: str
@@ -164,7 +164,7 @@ class SectionPlan:
 
 @dataclass
 class ReviewResult:
-    """评审输出（核心算法 8.2.4）。"""
+    """评审输出（docs/algorithms.md 8.2.4）。"""
 
     score: int = 0
     covered_points: list[str] = field(default_factory=list)
@@ -178,7 +178,7 @@ class ReviewResult:
 
 @dataclass
 class SectionDraft:
-    """单个章节的写作结果（核心算法 8.2.1）。"""
+    """单个章节的写作结果（docs/algorithms.md 8.2.1）。"""
 
     plan: SectionPlan
     markdown: str
@@ -206,7 +206,7 @@ class SectionDraft:
 
 @dataclass
 class WriteOptions:
-    """编写参数（开发文档 §7.5）。"""
+    """编写参数（docs/api-contract.md §7.5）。"""
 
     max_revisions: int = 1
     min_score: int = 75
@@ -247,7 +247,7 @@ def _char_count(text: str) -> int:
 
 @dataclass
 class BidReport:
-    """覆盖报告（核心算法 8.3.5），`to_dict` 即 `report.json` 内容。"""
+    """覆盖报告（docs/algorithms.md 8.3.5），`to_dict` 即 `report.json` 内容。"""
 
     doc_id: str
     project_name: str

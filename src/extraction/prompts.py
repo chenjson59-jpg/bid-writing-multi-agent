@@ -1,4 +1,4 @@
-"""章节重点路由与提示词构造（核心算法 A10）。"""
+"""章节重点路由与提示词构造（docs/algorithms.md A10）。"""
 from __future__ import annotations
 
 # 提示词版本：进入单元缓存标签 `{parser}|{PROMPT_VERSION}`（A10/缓存失效）。

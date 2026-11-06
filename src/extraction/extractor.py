@@ -1,4 +1,4 @@
-"""结构化抽取主流程（核心算法 A9、A12、A13、A14）。
+"""结构化抽取主流程（docs/algorithms.md A9、A12、A13、A14）。
 
 按章 map-reduce：把 `ParsedDocument` 切成 ≤12000 字的抽取单元，
 逐单元调用模型产出部分结果，合并、溯源核对后落盘 `extraction.json`。
@@ -160,7 +160,7 @@ def build_units(
 # ---------------------------------------------------------------------------
 
 def extract_json(text: str) -> Any:
-    """从模型返回文本中提取 JSON 对象（核心算法 6.4.2）。"""
+    """从模型返回文本中提取 JSON 对象（docs/algorithms.md 6.4.2）。"""
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```[a-zA-Z]*\n?", "", stripped)
@@ -375,7 +375,7 @@ def _drop_misplaced_bid_format(
 def _ensure_bid_format_items(
     partials: list[dict[str, Any]], path: list[str], title: str, text: str = ""
 ) -> list[dict[str, Any]]:
-    """投标格式补齐（核心算法 6.8）：空白模板按标题兜底，再从正文扫描模板。
+    """投标格式补齐（docs/algorithms.md 6.8）：空白模板按标题兜底，再从正文扫描模板。
 
     条件：章节路径含「投标文件格式」。返回新列表（深拷贝首个元素），
     不改动传入对象。

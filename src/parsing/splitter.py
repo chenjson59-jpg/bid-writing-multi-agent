@@ -1,4 +1,4 @@
-"""PDF 均衡分片（核心算法 A5）。"""
+"""PDF 均衡分片（docs/algorithms.md A5）。"""
 from __future__ import annotations
 
 import math

@@ -1,4 +1,4 @@
-"""Markdown → Word 导出（核心算法 A21）。
+"""Markdown → Word 导出（docs/algorithms.md A21）。
 
 行级解析：代码围栏、标题、表格、列表、分页符与普通段落；正文宋体 11pt、
 标题黑体、表格 Table Grid。传入项目名 / 投标人时生成「封面 + 自动目录 +

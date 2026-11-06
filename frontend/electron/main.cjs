@@ -7,7 +7,7 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173
 // 打包安装后没有环境变量，靠 app.isPackaged 判定；开发态仍可用 ELECTRON_LOAD_DIST=1 强制走 dist
 const LOAD_DIST = app.isPackaged || process.env.ELECTRON_LOAD_DIST === '1'
 
-// 白名单根目录：仓库 upload/，可用环境变量覆盖（开发文档 §11.2）。
+// 白名单根目录：仓库 upload/，可用环境变量覆盖（docs/api-contract.md §11.2）。
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || path.resolve(__dirname, '..', '..', 'upload')
 
 function createWindow() {

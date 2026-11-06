@@ -10,8 +10,19 @@ Plan-and-Execute 风格编写流程（标准库线程池章节级并发），以
 > **多角色 LLM 工作流（Plan-and-Execute 风格）**——Planner / Writer / Reviewer / Reviser
 > 是职责固定的函数节点，按预定义流程协作，章节级并发由标准库 `ThreadPoolExecutor` 扇出，
 > 不存在运行时自主选择工具或决定下一步的自主 Agent。这样命名与实现严格对应，避免概念夸大；
-> 术语界定见 `AGENTS.md` 第 1 节，选型与修订过程见 `团队分工与ADR.md` 的 ADR-004。
+> 术语界定见 `AGENTS.md` 第 1 节，选型与修订过程见 `docs/tech-decisions.md` 的 ADR-004。
 > 若未来出现条件分支、人工中断恢复等复杂编排需求，再评估 LangGraph 等图编排框架。
+
+## 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | 需求与业务边界、模块划分与数据流、组件工作机制、开发流程与验证门禁 |
+| [`docs/tech-decisions.md`](docs/tech-decisions.md) | 技术选型对比、架构决策记录（ADR）、技术栈与版本快照 |
+| [`docs/api-contract.md`](docs/api-contract.md) | 接口规范、任务状态、数据规范、配置、安全与故障排查 |
+| [`docs/algorithms.md`](docs/algorithms.md) | 解析/抽取/检索/编写核心算法、投标编写代码精读 |
+| [`docs/code-guide.md`](docs/code-guide.md) | 代码阅读路径与提交前验证门禁 |
+| [`AGENTS.md`](AGENTS.md) | 工程协作规范、LLM/RAG 约束与完成定义 |
 
 ## 目录结构
 

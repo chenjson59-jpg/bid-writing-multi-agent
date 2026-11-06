@@ -1,4 +1,4 @@
-"""幂等入库（核心算法 A16）。
+"""幂等入库（docs/algorithms.md A16）。
 
 同一文档重复入库时不重复嵌入、不重复计费，并清理过期片段：
 先 upsert 新增或内容变化的片段，再删除同一 `doc_id` 下不再存在的旧片段。
@@ -23,7 +23,7 @@ _client_lock = threading.Lock()
 
 @dataclass
 class IngestSummary:
-    """入库统计（开发文档 §6.2 与 §7 约定字段）。"""
+    """入库统计（docs/api-contract.md §6.2 与 §7 约定字段）。"""
     collection: str
     added: int
     updated: int
@@ -36,7 +36,7 @@ class IngestSummary:
 
 
 def collection_name(doc_type: str) -> str:
-    """文档类型 → 集合名映射（技术栈 §3.5）。
+    """文档类型 → 集合名映射（docs/tech-decisions.md §3.5）。
 
     `tender_file`/`unknown` 归入 `tender_document`，`announcement` 归入
     `tender_announcement`。
