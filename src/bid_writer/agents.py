@@ -23,6 +23,7 @@ from src.bid_writer.schema import (
     SectionDraft,
     SectionPlan,
     choose_strategy,
+    normalize_strategy,
     normalize_title,
 )
 from src.errors import BidWriteError
@@ -83,7 +84,9 @@ def _planner_llm(tender, profile, target_words, max_sections, caller, *, schema:
                 id=f"section_{i + 1}",
                 title=title,
                 order=i + 1,
-                strategy=item.get("strategy") or choose_strategy(title),
+                strategy=normalize_strategy(
+                    item.get("strategy"), fallback=choose_strategy(title)
+                ),
                 target_words=_int_value(item.get("target_words"), target_words),
                 scoring_factors=_as_str_list(item.get("scoring_factors")),
                 requirements=str(item.get("requirements") or ""),
