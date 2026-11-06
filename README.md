@@ -6,6 +6,13 @@
 结构化抽取 → 向量入库，Planner / Writer / Reviewer / Reviser 固定角色协作的
 Plan-and-Execute 风格编写流程（标准库线程池章节级并发），以及 Electron + React 操作界面。HTTP 接口通过 Celery + Redis 异步执行，统一用 `GET /api/jobs/{job_id}` 轮询。
 
+> **关于「多智能体」的命名说明**：产品名沿用「多智能体系统」，但当前实现是
+> **多角色 LLM 工作流（Plan-and-Execute 风格）**——Planner / Writer / Reviewer / Reviser
+> 是职责固定的函数节点，按预定义流程协作，章节级并发由标准库 `ThreadPoolExecutor` 扇出，
+> 不存在运行时自主选择工具或决定下一步的自主 Agent。这样命名与实现严格对应，避免概念夸大；
+> 术语界定见 `AGENTS.md` 第 1 节，选型与修订过程见 `团队分工与ADR.md` 的 ADR-004。
+> 若未来出现条件分支、人工中断恢复等复杂编排需求，再评估 LangGraph 等图编排框架。
+
 ## 目录结构
 
 ```
