@@ -217,14 +217,26 @@ class WriteOptions:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> WriteOptions:
+        """从请求体或持久化产物构造编写参数。
+
+        语义：缺键或显式 None 回退 dataclass 默认值；0、False 等合法假值原样
+        保留。不能用 ``or`` 取默认值——API 契约允许 ge=0，例如
+        ``max_revisions=0`` 表示不修订，旧写法会把它错误覆盖成 1。
+        """
         raw = raw or {}
+        defaults = cls()
+
+        def pick(key: str) -> Any:
+            value = raw.get(key)
+            return getattr(defaults, key) if value is None else value
+
         return cls(
-            max_revisions=raw.get("max_revisions", 1) or 1,
-            min_score=raw.get("min_score", 75) or 75,
-            max_sections=raw.get("max_sections", 0) or 0,
-            export_word=raw.get("export_word", True),
-            target_words=raw.get("target_words", 1200) or 1200,
-            top_k=raw.get("top_k", 6) or 6,
+            max_revisions=pick("max_revisions"),
+            min_score=pick("min_score"),
+            max_sections=pick("max_sections"),
+            export_word=pick("export_word"),
+            target_words=pick("target_words"),
+            top_k=pick("top_k"),
         )
 
 
