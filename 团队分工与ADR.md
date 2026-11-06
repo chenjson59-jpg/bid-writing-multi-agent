@@ -55,7 +55,7 @@
 | M1 环境与骨架 | 依赖安装、项目骨架 | `uv sync`、`npm install` 成功 |
 | M2 文档接入 | 解析 + 抽取 + 索引 + CLI | `ingest` 跑通，产物落盘 |
 | M3 异步接口 | FastAPI + Celery + 轮询 | 上传/查询接口通过测试 |
-| M4 投标编写 | LangGraph 多角色 + Word | 编写产物 + 覆盖报告 |
+| M4 投标编写 | 多角色工作流（线程池编排）+ Word | 编写产物 + 覆盖报告 |
 | M5 桌面工作台 | React + Electron | 四工作区 + 桌面能力 |
 | M6 验收 | 全量测试 + 手工验收 | 验收清单全通过 |
 
@@ -89,13 +89,14 @@
 - **备选**：进程内线程池为主；RQ/Dramatiq。
 - **后果**：Windows 下只能 solo 池；任务结果默认保留 24 小时。
 
-### ADR-004：采用 LangGraph 编排多 Agent 编写
+### ADR-004：编写编排采用固定角色工作流（线程池扇出）
 
-- **状态**：已接受
-- **背景**：流程是「计划 → 分章节并行 → 汇总」，章节数量运行时动态。
-- **决策**：LangGraph `StateGraph` + `Send` 扇出，`max_concurrency` 控并发。
-- **备选**：自研编排；CrewAI/AutoGen。
-- **后果**：需理解状态图概念；并发/扇出由框架保证。
+- **状态**：已修订（取代原「采用 LangGraph 编排」决策）
+- **背景**：流程是「计划 → 分章节并行 → 汇总」，章节数量运行时动态，但角色与跳转规则设计期固定，无运行时自主决策。
+- **决策**：用标准库 `ThreadPoolExecutor` 实现章节级扇出，Planner/Writer/Reviewer/Reviser 为职责固定的函数节点（Plan-and-Execute 风格多角色工作流，非自主多 Agent）。
+- **备选**：LangGraph `StateGraph` + `Send`；CrewAI/AutoGen。
+- **后果**：无额外框架依赖，技术栈与实现一致；代价是复杂条件分支、人工中断恢复等能力需自行实现，出现该类需求时再重新评估图编排框架。
+- **修订记录（2026-11-06）**：原 ADR 写为「采用 LangGraph `StateGraph` + `Send`」，但实际实现从未引入该框架，为避免决策记录与代码不符，按真实实现修订。
 
 ### ADR-005：采用 ChromaDB 嵌入式向量库
 

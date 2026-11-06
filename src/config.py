@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     celery_result_expires: int = 86400
     celery_task_always_eager: bool = False
 
-    # ---- 多 Agent 投标编写 ----
+    # ---- 多角色投标编写工作流 ----
     bid_writer_max_revisions: int = 1
     bid_writer_min_score: int = 75
     bid_writer_top_k: int = 6

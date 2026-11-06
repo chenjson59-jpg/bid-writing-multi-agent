@@ -83,7 +83,7 @@ else {
 # ---- 2. Worker ----
 if ($Backend -eq 'celery') {
     Start-LoggedWindow 'bidding-worker' 'uv run celery -A src.celery_app worker --loglevel=info --pool=solo'
-    Write-Host '[2/4] worker 已在新窗口启动（首次启动需等待加载 LangGraph 依赖）' -ForegroundColor Green
+    Write-Host '[2/4] worker 已在新窗口启动（首次启动需等待加载模型与解析依赖）' -ForegroundColor Green
 }
 
 # ---- 3. API ----

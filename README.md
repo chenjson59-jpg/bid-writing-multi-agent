@@ -1,10 +1,10 @@
 # 招标文件多智能体系统
 
-解析中文招标文件，抽取结构化要点并写入向量库，为后续多 Agent 标书编写提供输入底座。
+解析中文招标文件，抽取结构化要点并写入向量库，为后续多角色标书编写工作流提供输入底座。
 
-已实现**文档摄取 + 异步 API + 多 Agent 投标文件编写 + 桌面工作台**：解析 →
-结构化抽取 → 向量入库，基于 LangGraph 的 Planner / Writer / Reviewer / Reviser
-编写流程，以及 Electron + React 操作界面。HTTP 接口通过 Celery + Redis 异步执行，统一用 `GET /api/jobs/{job_id}` 轮询。
+已实现**文档摄取 + 异步 API + 多角色投标文件编写工作流 + 桌面工作台**：解析 →
+结构化抽取 → 向量入库，Planner / Writer / Reviewer / Reviser 固定角色协作的
+Plan-and-Execute 风格编写流程（标准库线程池章节级并发），以及 Electron + React 操作界面。HTTP 接口通过 Celery + Redis 异步执行，统一用 `GET /api/jobs/{job_id}` 轮询。
 
 ## 目录结构
 
@@ -356,10 +356,10 @@ uv run python scripts/install_demo_data.py
 依据预置章节正文真实计算，覆盖率与正文一致。详见 `examples/demo/README.md`
 （含数据来源声明与 3 分钟演示流程）。
 
-## 投标文件编写（多 Agent）
+## 投标文件编写（多角色工作流）
 
-基于已解析并抽取的招标文件，用 LangGraph 编排 Planner → Writer → Reviewer → Reviser
-多个 Agent，生成投标文件草稿（Markdown + Word）与评分覆盖自检报告。
+基于已解析并抽取的招标文件，由 Planner → Writer → Reviewer → Reviser 固定角色
+协作完成章节规划、写作、评审与修订，生成投标文件草稿（Markdown + Word）与评分覆盖自检报告。
 
 ```bash
 # 1) 先确保该文档已解析并抽取
