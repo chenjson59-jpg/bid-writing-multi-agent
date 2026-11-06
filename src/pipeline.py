@@ -44,7 +44,7 @@ def _sha256(path: Path) -> str:
 
 
 def _safe_filename(name: str) -> str:
-    """清理文件名中的目录部分与非法字符（开发文档 §6.5）。"""
+    """清理文件名中的目录部分与非法字符（docs/api-contract.md §6.5）。"""
     base = Path(name).name
     return _ILLEGAL_CHARS_RE.sub("_", base) or "document"
 
@@ -322,7 +322,7 @@ def run_bid_writer(
     from src.bid_writer.docx_export import markdown_to_docx
     from src.bid_writer.graph import run_write_pipeline
     from src.bid_writer.profile_schema import infer_profile_schema
-    from src.bid_writer.schema import BidderProfile, PROFILE_FIELD_LABELS, WriteOptions
+    from src.bid_writer.schema import PROFILE_FIELD_LABELS, BidderProfile, WriteOptions
     from src.bid_writer.usage import default_meter
     from src.vectorstore.ingest import collection_name
     from src.vectorstore.retrieval import ChromaRetriever

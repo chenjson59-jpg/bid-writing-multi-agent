@@ -1,15 +1,24 @@
-# 招标文件多智能体系统 · 核心算法
+# 核心算法与投标编写代码精读
 
-> 版本快照：2026-10-17  
-> 适用代码版本：`f45cd74` 及之后  
+> 本文件由原《核心算法》《代码精读-投标编写》于 2026-11-06 归并而成；精读笔记中的行号为当前 main 快照，代码演进后可能漂移，定位以符号名为准。
+
+## 目录
+
+- 第一部分　核心算法（原《核心算法》）
+- 第二部分　投标编写代码精读（原《代码精读-投标编写》）
+
+## 第一部分　核心算法（原《核心算法》）
+
+> 版本快照：2026-11-06  
+> 适用代码版本：当前 main  
 > 文档范围：文档结构还原、PDF 分片与合并、结构化抽取、检索索引、投标文件编写、产物汇总。  
-> 配套文档：`开发文档.md`（业务与接口）、`技术栈.md`（技术与版本）、`CLAUDE.md`（开发约定）。
+> 配套文档：`api-contract.md`（业务与接口）、`tech-decisions.md`（技术与版本）、`AGENTS.md`（开发约定）。
 
 ---
 
-## 1. 文档说明
+### 1. 文档说明
 
-### 1.1 目标
+#### 1.1 目标
 
 本文档描述系统中最影响结果的算法与规则，包括：
 
@@ -19,7 +28,7 @@
 - 失效模式与边界条件；
 - 参数默认值、复杂度与测试覆盖。
 
-### 1.2 阅读约定
+#### 1.2 阅读约定
 
 - 伪代码使用 Python 风格，仅表达逻辑，不保证可直接运行；
 - 变量名尽量与源码一致；
@@ -28,7 +37,7 @@
 - “片段”指写入检索索引的最小文本块；
 - 所有字符长度均按 Python `len(str)` 计算（中文按 1 个字符计）。
 
-### 1.3 算法总览
+#### 1.3 算法总览
 
 ```text
 PDF
@@ -80,14 +89,14 @@ PDF
 
 ---
 
-## 2. 文档结构还原
+### 2. 文档结构还原
 
-### 2.1 书签读取与页码范围（A1）
+#### 2.1 书签读取与页码范围（A1）
 
 **输入**：已打开的 PDF 文档。  
 **输出**：`TocEntry` 列表，每项包含 `level`、`title`、`page`、`page_end`。
 
-#### 步骤
+##### 步骤
 
 1. 读取 PDF 书签 `get_toc(simple=True)`，得到 `(level, title, page)` 序列；
 2. 对每个节点：
@@ -97,7 +106,7 @@ PDF
    - 若存在，`page_end = max(page, 后继页码 - 1)`；
    - 若不存在，延伸到文档末页。
 
-#### 伪代码
+##### 伪代码
 
 ```python
 for i, (level, title, page) in enumerate(raw):
@@ -112,27 +121,27 @@ for i, (level, title, page) in enumerate(raw):
     entries.append(TocEntry(level, title, page, end))
 ```
 
-#### 设计说明
+##### 设计说明
 
 - 同层节点之间不重叠；
 - 子节点区间包含在父节点区间内；
 - 同级后一个节点开始时，前一个节点结束；
 - 页码范围用于后续“页面归属”。
 
-#### 复杂度
+##### 复杂度
 
 - 时间：`O(L^2)`，`L` 为书签节点数；
 - 空间：`O(L)`；
 - 招标文件书签通常几十到几百个，`O(L^2)` 可接受。
 
-#### 边界
+##### 边界
 
 - 书签为空 → 返回空列表，后续走无书签路径；
 - 页码为 0 或越界 → 钳制；
 - 书签层级跳跃（如 1 → 3）→ 仍按数值层级处理，页面归属取最深节点；
 - 书签标题重复 → 不合并，按顺序保留。
 
-### 2.2 页面归属最深书签（A2）
+#### 2.2 页面归属最深书签（A2）
 
 **输入**：
 
@@ -144,7 +153,7 @@ for i, (level, title, page) in enumerate(raw):
 - `assigned`：`{节点下标: [该节点负责的页面块]}`；
 - `uncovered`：没有被任何书签覆盖的页面块。
 
-#### 步骤
+##### 步骤
 
 1. 按页码升序遍历非空页面；
 2. 为页面构造块：`<!-- page: p -->\n{text}`；
@@ -153,7 +162,7 @@ for i, (level, title, page) in enumerate(raw):
 5. 将页面块加入该节点；
 6. 若没有节点覆盖，加入 `uncovered`。
 
-#### 伪代码
+##### 伪代码
 
 ```python
 for page_no in sorted(pages):
@@ -174,30 +183,30 @@ for page_no in sorted(pages):
         uncovered.append(block)
 ```
 
-#### 设计说明
+##### 设计说明
 
 - 同一页可能同时落在父节点和子节点区间内，取最深节点避免正文重复；
 - 同层节点区间理论上不重叠；若因异常书签重叠，取靠后节点；
 - 封面、目录、未覆盖页进入 `uncovered`，不会被丢弃。
 
-#### 复杂度
+##### 复杂度
 
 - 时间：`O(P × L)`，`P` 为页数，`L` 为书签数；
 - 空间：`O(P)`；
 - 200 页、200 个书签时约 4 万次比较，开销可忽略。
 
-#### 边界
+##### 边界
 
 - 书签页码错误、跨页区间异常 → 页面可能落到错误节点；
 - 页面文本为空 → 不参与归属；
 - 目录页本身也会被归属，后续分块时再识别并跳过。
 
-### 2.3 章节与 Markdown 组装（A3）
+#### 2.3 章节与 Markdown 组装（A3）
 
 **输入**：`entries`、`assigned`、`uncovered`。  
 **输出**：`(markdown, sections)`。
 
-#### 步骤
+##### 步骤
 
 1. 若有 `uncovered`，先把它们按原顺序拼接，放在 Markdown 最前面；
 2. 遍历每个书签节点：
@@ -211,7 +220,7 @@ for page_no in sorted(pages):
      - `text`：该节点自己的正文；
 3. Markdown 为所有部分以空行连接。
 
-#### 伪代码
+##### 伪代码
 
 ```python
 parts = ["\n\n".join(uncovered)] if uncovered else []
@@ -234,18 +243,18 @@ for i, entry in enumerate(entries):
 return "\n\n".join(parts), sections
 ```
 
-#### 说明
+##### 说明
 
 - `Section.text` **只包含该节点自己的正文**，不包含子节点；
 - 需要子树正文时使用 `subtree_text` 拼接后代；
 - 空节点仍保留在 `sections` 中，`text` 为空；
 - `uncovered` 内容进入 Markdown，但不属于任何章节。
 
-### 2.4 目录页识别（A4）
+#### 2.4 目录页识别（A4）
 
 **目标**：分块时跳过目录页，避免把“第一章……2”这类导航文本写入检索索引。
 
-#### 判定规则
+##### 判定规则
 
 对每行非空文本：
 
@@ -260,7 +269,7 @@ L >= 2 且 L / 非空行数 >= 0.3
 
 则判定为目录页。
 
-#### 伪代码
+##### 伪代码
 
 ```python
 lines = [line for line in text.splitlines() if line.strip()]
@@ -271,19 +280,19 @@ leaders = sum(
 return leaders >= 2 and leaders / len(lines) >= 0.3
 ```
 
-#### 设计说明
+##### 设计说明
 
 - 真实招标文件常见 4 个引导点（`第一章 投标邀请....2`），旧规则要求 6 个会漏判；
 - 要求至少 2 行，避免把正文中偶尔出现的点线误判为目录；
 - 比例为 0.3，兼顾目录页与“目录 + 说明”混合页。
 
-#### 边界
+##### 边界
 
 - 单行目录页可能漏判；
 - 正文中连续两行以“点线 + 数字”结尾可能误判；
 - 目录页漏判只会增加噪声，不会导致正文丢失。
 
-### 2.5 无书签与无章节处理
+#### 2.5 无书签与无章节处理
 
 三类情况需要区分：
 
@@ -305,7 +314,7 @@ markdown = "\n\n".join(
 
 云端解析在无书签时会把所有页面放入 `uncovered`，行为与本地解析一致：正文保留、章节为空。
 
-### 2.6 文档类型判定（启发式）
+#### 2.6 文档类型判定（启发式）
 
 **输入**：解析后的 Markdown 与书签数量。  
 **输出**：`tender_file` / `announcement` / `unknown`。
@@ -327,9 +336,9 @@ markdown = "\n\n".join(
 - 影响抽取字段的默认预期；
 - 只是启发式，不改变正文。
 
-### 2.7 章节辅助结构
+#### 2.7 章节辅助结构
 
-#### `section_number(title)`
+##### `section_number(title)`
 
 按优先级匹配标题编号前缀：
 
@@ -344,7 +353,7 @@ markdown = "\n\n".join(
 
 返回第一个命中的前缀，否则返回空字符串。用于检索片段的 `section_no`。
 
-#### `ancestor_titles(entries, index)`
+##### `ancestor_titles(entries, index)`
 
 从当前节点向前扫描：
 
@@ -355,7 +364,7 @@ markdown = "\n\n".join(
 
 用于章节面包屑与提示词中的“上级章节”。
 
-#### `subtree_range(entries, index)`
+##### `subtree_range(entries, index)`
 
 返回节点子树的左闭右开区间：
 
@@ -365,24 +374,24 @@ end = 第一个后继节点中 level <= 当前 level 的下标
 若不存在，end = len(entries)
 ```
 
-#### `subtree_text(sections, entries, index)`
+##### `subtree_text(sections, entries, index)`
 
 拼接 `subtree_range` 内所有非空章节正文，用于：
 
 - 判断整章是否能在一次抽取调用内完成；
 - 章节子树正文兜底。
 
-#### `chapter_indices(entries)`
+##### `chapter_indices(entries)`
 
 返回标题匹配 `^第[一二三四五六七八九十百]+章` 的节点下标，作为抽取的 map 起点。
 
 ---
 
-## 3. PDF 均衡分片（A5）
+### 3. PDF 均衡分片（A5）
 
 **目标**：绕过云端解析单文件页数上限，同时保证各分片大小均衡、页码可还原。
 
-### 3.1 分片数量
+#### 3.1 分片数量
 
 设：
 
@@ -396,7 +405,7 @@ end = 第一个后继节点中 level <= 当前 level 的下标
 P = ceil(N / M)
 ```
 
-### 3.2 每片页数
+#### 3.2 每片页数
 
 ```text
 base = floor(N / P)
@@ -411,7 +420,7 @@ remainder = N mod P
 - 各片大小差不超过 1；
 - 不产生空分片。
 
-### 3.3 伪代码
+#### 3.3 伪代码
 
 ```python
 if page_count <= 0:
@@ -430,7 +439,7 @@ for i in range(parts):
     start += size
 ```
 
-### 3.4 页偏移还原
+#### 3.4 页偏移还原
 
 每个分片记录：
 
@@ -443,7 +452,7 @@ for i in range(parts):
 原始页码 = page_idx + page_offset + 1
 ```
 
-### 3.5 边界
+#### 3.5 边界
 
 - 无需分片时，直接返回指向原文件的单个分片，不复制文件；
 - 加密 PDF 直接报错；
@@ -452,9 +461,9 @@ for i in range(parts):
 
 ---
 
-## 4. 云端解析结果合并（A6）
+### 4. 云端解析结果合并（A6）
 
-### 4.1 content_list 解析
+#### 4.1 content_list 解析
 
 每个分片解压后，优先读取 `*content_list*.json`。
 
@@ -480,7 +489,7 @@ pages[page_idx + page_offset + 1] += block_text
 
 同一页的多个块以空行连接。
 
-### 4.2 多分片合并
+#### 4.2 多分片合并
 
 ```python
 pages = {}
@@ -497,7 +506,7 @@ for output in outputs:
 - 不同分片的页码区间不重叠；
 - 图片按分片前缀复制到统一图片目录。
 
-### 4.3 组装与降级
+#### 4.3 组装与降级
 
 若 `content_list` 全部可用且 `pages` 非空：
 
@@ -514,12 +523,12 @@ markdown, sections = compose_sections(entries, assigned, uncovered)
 - 标记 `structure_source="markdown_order"`、`degraded=True`；
 - 记录警告“无法从 content_list 还原页码”。
 
-### 4.4 输出查找顺序
+#### 4.4 输出查找顺序
 
 - Markdown：优先 `full.md`，否则取排序后的第一个 `*.md`；
 - content_list：取排序后的第一个 `*content_list*.json`。
 
-### 4.5 失效模式
+#### 4.5 失效模式
 
 | 情况 | 结果 |
 |---|---|
@@ -531,9 +540,9 @@ markdown, sections = compose_sections(entries, assigned, uncovered)
 
 ---
 
-## 5. 本地解析与文本清洗（A7、A8）
+### 5. 本地解析与文本清洗（A7、A8）
 
-### 5.1 页面清洗
+#### 5.1 页面清洗
 
 本地解析对每页文本逐行处理：
 
@@ -547,21 +556,21 @@ markdown, sections = compose_sections(entries, assigned, uncovered)
 
 目的：减少页眉页脚对分块与抽取的干扰。
 
-### 5.2 图片抽取
+#### 5.2 图片抽取
 
 - 遍历每页 `get_images(full=True)`；
 - 按 `xref` 去重，同一图片多次出现只保存一次；
 - 文件名：`p{页码:03d}_x{xref}.{ext}`；
 - 单张图片失败只记录警告，不中断解析。
 
-### 5.3 无书签
+#### 5.3 无书签
 
 - 所有页面按顺序拼接 Markdown；
 - `sections=[]`；
 - 记录警告；
 - 元信息标记 `structure_source="page_order"`。
 
-### 5.4 HTML 表格扁平化
+#### 5.4 HTML 表格扁平化
 
 云端解析可能把表格输出为 HTML。处理步骤：
 
@@ -588,9 +597,9 @@ markdown, sections = compose_sections(entries, assigned, uncovered)
 
 ---
 
-## 6. 结构化抽取（A9–A14）
+### 6. 结构化抽取（A9–A14）
 
-### 6.1 总体思路
+#### 6.1 总体思路
 
 招标文件可能长达十几万字，单次调用既超上下文也超输出预算。算法采用**按章 map-reduce**：
 
@@ -599,9 +608,9 @@ markdown, sections = compose_sections(entries, assigned, uncovered)
 3. 合并所有部分结果；
 4. 对关键字段做原文核对。
 
-### 6.2 单元切分（A9）
+#### 6.2 单元切分（A9）
 
-#### 6.2.1 章节选择
+##### 6.2.1 章节选择
 
 - 若存在 `第X章` 节点，以这些节点为 map 起点；
 - 若没有章节点但存在正文，退化为全文按段落切分；
@@ -613,7 +622,7 @@ markdown, sections = compose_sections(entries, assigned, uncovered)
 ^第[一二三四五六七八九十百]+章
 ```
 
-#### 6.2.2 递归细分
+##### 6.2.2 递归细分
 
 对章节 `index`：
 
@@ -628,7 +637,7 @@ full_text = subtree_text(index)
   - 对每个直接子节点递归；
   - 若既无自身正文也无子节点，则对 `full_text` 按段落切分。
 
-#### 6.2.3 段落打包
+##### 6.2.3 段落打包
 
 ```python
 paragraphs = split_by_blank_lines(text)
@@ -657,7 +666,7 @@ flush(buffer)
 - 单元之间不重叠；
 - 每个单元携带标题与祖先路径。
 
-#### 6.2.4 参数
+##### 6.2.4 参数
 
 | 参数 | 默认 | 含义 |
 |---|---|---|
@@ -665,7 +674,7 @@ flush(buffer)
 | 截断二分最小长度 | 1200 | 低于此长度不再二分 |
 | 二分最大深度 | 2 | 最多递归两层 |
 
-### 6.3 章节重点路由（A10）
+#### 6.3 章节重点路由（A10）
 
 按“祖先路径 + 当前标题”拼接成 `haystack`，按顺序匹配：
 
@@ -685,20 +694,20 @@ flush(buffer)
 - “合同技术条款”必须优先于“合同”，否则会被归为合同要点；
 - 不是所有章节都需要全字段，减少无关字段的诱导性填空。
 
-### 6.4 JSON 调用与容错
+#### 6.4 JSON 调用与容错
 
-#### 6.4.1 调用策略
+##### 6.4.1 调用与容错策略（与当前实现一致）
 
-- 默认启用 JSON 模式；
-- 若模型明确不支持 `response_format`，关闭 JSON 模式并重试一次；
-- 若 JSON 模式下返回空内容或坏 JSON，关闭 JSON 模式重试；
-- 文本模式空响应按退避重试；
-- 连接、超时、限流、5xx 可重试；
-- 其他 4xx 直接失败；
-- 最大尝试次数 = `LLM_MAX_RETRIES + 1`；
-- 退避时间 = `MINERU_RETRY_BACKOFF ** attempt`（复用了同一配置）。
+- 抽取调用固定使用 JSON 模式（`json_mode=True`），不做模式降级；
+- `finish_reason == "length"` 抛「输出被 max_tokens 截断」，空内容抛「返回空内容」；
+- 单元级容错在 `_extract_unit` 中实现，均为硬编码策略、不受配置驱动：
+  - 结果按章节 focus 判定为空时，用相同入参原样重试一次，避免偶发空响应丢字段；
+  - 截断错误且单元文本超过阈值时，按中点二分递归为上下两个单元分别抽取后合并，递归深度有上限；
+- 文本 LLM 调用层没有自动指数退避；唯一接入 SDK 重试的是嵌入层
+  （`EMBEDDING_MAX_RETRIES`，429 时由 OpenAI SDK 指数退避）；
+- 不存在 `LLM_MAX_RETRIES`、`MINERU_RETRY_BACKOFF` 配置项，历史文档中的退避公式为过时描述，已移除。
 
-#### 6.4.2 JSON 提取
+##### 6.4.2 JSON 提取
 
 ```python
 text = strip_code_fences(text)
@@ -715,12 +724,12 @@ if start >= 0 and end > start:
 raise ExtractError("未找到合法 JSON 对象")
 ```
 
-#### 6.4.3 截断判定
+##### 6.4.3 截断判定
 
 - `finish_reason == "length"` → 抛 `ExtractError("输出被 max_tokens 截断")`；
 - 空内容 → 抛 `ExtractError("返回空内容")`。
 
-### 6.5 宽容字段归一化（A11）
+#### 6.5 宽容字段归一化（A11）
 
 模型输出常出现：
 
@@ -730,7 +739,7 @@ raise ExtractError("未找到合法 JSON 对象")
 - 类别写成近义词；
 - 基础字段包在 `basic` / `info` / `project` 子对象中。
 
-#### 6.5.1 字符串列表
+##### 6.5.1 字符串列表
 
 ```text
 None → []
@@ -739,7 +748,7 @@ None → []
 其他 → [str(value)]
 ```
 
-#### 6.5.2 数值
+##### 6.5.2 数值
 
 ```text
 None / "" → None
@@ -748,7 +757,7 @@ int / float → float
 字符串 → 提取第一个 -?\d+(?:\.\d+)?，失败则 None
 ```
 
-#### 6.5.3 布尔
+##### 6.5.3 布尔
 
 真值集合：
 
@@ -764,7 +773,7 @@ int / float → float
 
 其他 → `None`。
 
-#### 6.5.4 类别
+##### 6.5.4 类别
 
 在目标字符串中查找第一个命中的类别关键词：
 
@@ -773,7 +782,7 @@ int / float → float
 - 评审阶段：`形式评审`、`资格评审`、`响应性评审`；
 - 未命中 → `其他`。
 
-#### 6.5.5 字段级降级
+##### 6.5.5 字段级降级
 
 1. 展开 `basic` / `info` / `project` / `basic_info` / `project_info`；
 2. 只保留 schema 已声明字段；
@@ -781,9 +790,9 @@ int / float → float
 4. 失败后逐字段单独校验，非法字段丢弃，合法字段保留；
 5. 记录警告“部分字段不符合 schema”。
 
-### 6.6 结果合并（A12）
+#### 6.6 结果合并（A12）
 
-#### 6.6.1 标量
+##### 6.6.1 标量
 
 - 跳过 `None`；
 - 目标为空（`None`、`""`、`[]`、`{}`）时写入；
@@ -791,7 +800,7 @@ int / float → float
 
 因此，靠前章节抽取到的项目名称优先。
 
-#### 6.6.2 列表
+##### 6.6.2 列表
 
 按“去重键”合并：
 
@@ -803,7 +812,7 @@ title → name → factor → topic → order
 
 只追加未出现过的项。
 
-#### 6.6.3 字典
+##### 6.6.3 字典
 
 递归合并：
 
@@ -811,7 +820,7 @@ title → name → factor → topic → order
 - 字典 → 递归；
 - 标量 → 目标为空时写入。
 
-#### 6.6.4 伪代码
+##### 6.6.4 伪代码
 
 ```python
 def merge_dict(base, extra):
@@ -827,11 +836,11 @@ def merge_dict(base, extra):
     return base
 ```
 
-### 6.7 溯源核对（A13）
+#### 6.7 溯源核对（A13）
 
 **目的**：报告哪些关键字段无法在原文中逐字找到，不自动删除结果。
 
-#### 6.7.1 归一化
+##### 6.7.1 归一化
 
 ```text
 去掉所有空白、竖线 |、全角竖线 ｜
@@ -839,7 +848,7 @@ def merge_dict(base, extra):
 
 原因：表格抽取结果常以“单元格 | 单元格”呈现，模型引用时通常不保留竖线。
 
-#### 6.7.2 核对字段
+##### 6.7.2 核对字段
 
 - 项目名称；
 - 招标编号；
@@ -850,7 +859,7 @@ def merge_dict(base, extra):
 - 每条资格门槛 `thresholds`；
 - 每个评分因素的 `source_quote`。
 
-#### 6.7.3 判定
+##### 6.7.3 判定
 
 ```text
 normalize(value) in normalize(full_text)
@@ -858,13 +867,13 @@ normalize(value) in normalize(full_text)
 
 不满足则加入 `ungrounded_fields`。
 
-#### 6.7.4 边界
+##### 6.7.4 边界
 
 - 模型改写标点、数字格式、同义表述 → 可能误报；
 - 表格单元格顺序变化 → 可能误报；
 - 只报告、不清空，最终由人工判断。
 
-### 6.8 投标格式兜底（`_ensure_bid_format_item`）
+#### 6.8 投标格式兜底（`_ensure_bid_format_item`）
 
 适用条件：
 
@@ -881,7 +890,7 @@ bid_format.items = [{title: 当前标题}]
 
 原因：空白模板（如“法定代表人身份证明”）常被模型返回空对象；按标题兜底可避免格式清单缺项。
 
-### 6.9 截断二分重试（A14）
+#### 6.9 截断二分重试（A14）
 
 触发条件：
 
@@ -911,9 +920,9 @@ lower = _extract_unit(text[middle:], depth + 1)
 - 两半可能重复同一评分项，后续按去重键合并；
 - 长度小于 1200 仍被截断 → 直接失败。
 
-### 6.10 单元缓存
+#### 6.10 单元缓存
 
-#### 6.10.1 缓存位置
+##### 6.10.1 缓存位置
 
 ```text
 upload/parsed/<doc_id>/extraction_parts/
@@ -923,7 +932,7 @@ upload/parsed/<doc_id>/extraction_parts/
 └─ cache_tag.txt
 ```
 
-#### 6.10.2 缓存标签
+##### 6.10.2 缓存标签
 
 ```text
 cache_tag = f"{doc.parser}|{PROMPT_VERSION}"
@@ -933,7 +942,7 @@ cache_tag = f"{doc.parser}|{PROMPT_VERSION}"
 - 提示词版本变化 → 抽取口径变化；
 - 任一变化都会清空单元缓存。
 
-#### 6.10.3 整篇缓存复用条件
+##### 6.10.3 整篇缓存复用条件
 
 同时满足：
 
@@ -949,7 +958,7 @@ cache_tag = f"{doc.parser}|{PROMPT_VERSION}"
 - 若解析器变化 → 重抽；
 - 若标签过期 → 清空重抽。
 
-#### 6.10.4 单元缓存复用
+##### 6.10.4 单元缓存复用
 
 - 读取 `NNN.json`；
 - 反序列化为 `ChapterExtraction` 列表；
@@ -957,13 +966,13 @@ cache_tag = f"{doc.parser}|{PROMPT_VERSION}"
 - 成功则跳过模型调用；
 - 缓存损坏 → 重新抽取并覆盖。
 
-#### 6.10.5 错误隔离
+##### 6.10.5 错误隔离
 
 - 单个单元失败 → 记录警告，继续下一个；
 - 所有单元失败 → 抛 `ExtractError`；
 - 部分单元失败 → 用成功部分生成结果，警告写入 `extraction_meta.warnings`。
 
-### 6.11 最终结果
+#### 6.11 最终结果
 
 ```text
 TenderDocument(
@@ -981,18 +990,18 @@ TenderDocument(
 
 ---
 
-## 7. 检索索引（A15–A17）
+### 7. 检索索引（A15–A17）
 
-### 7.1 章节感知分块（A15）
+#### 7.1 章节感知分块（A15）
 
-#### 7.1.1 目标
+##### 7.1.1 目标
 
 - 不以固定窗口粗暴切断条款；
 - 尽量保持章节语义完整；
 - 超长章节才在句末标点处切分；
 - 无书签时仍能按页建立索引。
 
-#### 7.1.2 参数
+##### 7.1.2 参数
 
 | 参数 | 默认 | 含义 |
 |---|---|---|
@@ -1001,7 +1010,7 @@ TenderDocument(
 | `overlap` | 80 | 硬切时的重叠字符数 |
 | `MIN_FALLBACK_CHARS` | 10 | 无书签兜底时的最短片段 |
 
-#### 7.1.3 章节路径
+##### 7.1.3 章节路径
 
 对每个 `Section`：
 
@@ -1018,7 +1027,7 @@ TenderDocument(
 5. 若正文 `<= hard_max` → 单片段；
 6. 否则按段落打包。
 
-#### 7.1.4 段落打包
+##### 7.1.4 段落打包
 
 ```python
 paragraphs = split_by_blank_lines(text)
@@ -1038,7 +1047,7 @@ for paragraph in paragraphs:
 flush(buffer)
 ```
 
-#### 7.1.5 句末硬切
+##### 7.1.5 句末硬切
 
 ```python
 sentences = split_after("。；！？")
@@ -1066,7 +1075,7 @@ if buffer:
 - 重叠用于保持上下文连续；
 - 片段首尾空白会被清理，空片段丢弃。
 
-#### 7.1.6 无书签按页兜底
+##### 7.1.6 无书签按页兜底
 
 当 `sections` 为空，或所有章节都被跳过时：
 
@@ -1084,7 +1093,7 @@ if buffer:
 
 这条兜底解决了“无书签 PDF 有正文但 `sections=[]` 导致 0 片段、入库失败”的问题。
 
-#### 7.1.7 元数据
+##### 7.1.7 元数据
 
 每个片段记录：
 
@@ -1106,19 +1115,19 @@ if buffer:
 | `created_at` | 生成时间 |
 | `schema_version` | 元数据版本 |
 
-#### 7.1.8 复杂度
+##### 7.1.8 复杂度
 
 - 时间：`O(C)`，`C` 为文档字符数；
 - 空间：`O(C)`；
 - 重叠会增加少量重复字符。
 
-### 7.2 幂等入库（A16）
+#### 7.2 幂等入库（A16）
 
-#### 7.2.1 目标
+##### 7.2.1 目标
 
 同一文档重复入库时不重复写、不重复计费，并清理过期片段。
 
-#### 7.2.2 步骤
+##### 7.2.2 步骤
 
 1. 计算分块；若为空 → 抛 `IngestError`；
 2. 获取集合；
@@ -1156,7 +1165,7 @@ updated   = len(changed) - added
 
 其中 `total = collection.count()`，是该集合所有文档的片段总数，不只是当前文档。
 
-#### 7.2.3 关键性质
+##### 7.2.3 关键性质
 
 - 片段 id 为 `doc_id:index:04d`；
 - 内容未变 → 跳过嵌入；
@@ -1165,19 +1174,19 @@ updated   = len(changed) - added
 - 中途崩溃 → 旧片段仍可查询，下次运行收敛；
 - `force` 参数当前不改变入库行为，变更完全由内容指纹决定。
 
-#### 7.2.4 复杂度
+##### 7.2.4 复杂度
 
 - 时间：`O(C + K)`，`K` 为片段数；
 - 嵌入调用成本与 `changed` 数量成正比；
 - 空间：`O(K)`。
 
-### 7.3 共享检索（A17）
+#### 7.3 共享检索（A17）
 
-#### 7.3.1 问题
+##### 7.3.1 问题
 
 多角色并行写作时，如果每个章节新建持久化客户端，会打开多个数据库连接并触发租户错误。
 
-#### 7.3.2 方案
+##### 7.3.2 方案
 
 - 每轮编写创建一个检索器；
 - 检索器内部持有唯一集合引用；
@@ -1185,7 +1194,7 @@ updated   = len(changed) - added
 - 查询可选 `where={"doc_id": doc_id}`；
 - `top_k` 默认 6。
 
-#### 7.3.3 伪代码
+##### 7.3.3 伪代码
 
 ```python
 class Retriever:
@@ -1208,7 +1217,7 @@ class Retriever:
         return to_chunks(result)
 ```
 
-#### 7.3.4 失效模式
+##### 7.3.4 失效模式
 
 - 集合不存在 → 返回空列表；
 - 嵌入服务不可用 → 初始化失败 → 返回空列表；
@@ -1217,11 +1226,11 @@ class Retriever:
 
 ---
 
-## 8. 投标文件编写（A18–A21）
+### 8. 投标文件编写（A18–A21）
 
-### 8.1 大纲生成（A18）
+#### 8.1 大纲生成（A18）
 
-#### 8.1.1 LLM 策划
+##### 8.1.1 LLM 策划
 
 Planner 输入：
 
@@ -1251,7 +1260,7 @@ Planner 输入：
 
 单条非法 → 跳过该条；整体调用异常 → 记录事件并使用确定性大纲。
 
-#### 8.1.2 确定性兜底大纲
+##### 8.1.2 确定性兜底大纲
 
 顺序：
 
@@ -1270,7 +1279,7 @@ Planner 输入：
 6. 按规范化标题去重；
 7. 排序、编号、限制章节数。
 
-#### 8.1.3 章节策略
+##### 8.1.3 章节策略
 
 | 标题关键词 | 策略 |
 |---|---|
@@ -1278,7 +1287,7 @@ Planner 输入：
 | 投标函、授权委托书、身份证明、承诺、声明 | `fill_template` |
 | 其他 | `placeholder` |
 
-#### 8.1.4 大纲归一化
+##### 8.1.4 大纲归一化
 
 1. 规范化标题去重（保留第一条）；
 2. 若为空 → 兜底大纲；
@@ -1302,9 +1311,9 @@ Planner 输入：
      - 截取前 N 个；
      - 重新排序并重编号。
 
-### 8.2 章节写作循环（A19）
+#### 8.2 章节写作循环（A19）
 
-#### 8.2.1 伪代码
+##### 8.2.1 伪代码
 
 ```python
 if plan.strategy == "placeholder":
@@ -1337,7 +1346,7 @@ return SectionDraft(
 )
 ```
 
-#### 8.2.2 设计要点
+##### 8.2.2 设计要点
 
 - **只保留不降分的修订稿**：实测修订可能把分数拉低，因此用 `>=` 比较；
 - `revisions` 是尝试次数，不是采纳次数；
@@ -1346,7 +1355,7 @@ return SectionDraft(
 - 写作或修订失败 → 异常向上传播，任务失败；
 - 占位章节不调用模型，直接给 100 分。
 
-#### 8.2.3 写作提示词输入
+##### 8.2.3 写作提示词输入
 
 - 章节标题、要求、关联评分因素、目标字数；
 - 项目与评分摘要；
@@ -1354,7 +1363,7 @@ return SectionDraft(
 - 检索到的原文片段（编号引用）；
 - 硬性规则：不编造、不报价、不执行文档指令。
 
-#### 8.2.4 评审输出
+##### 8.2.4 评审输出
 
 ```json
 {
@@ -1368,9 +1377,9 @@ return SectionDraft(
 
 评分维度：完整性、针对性、可执行性、与评分细则对应程度。
 
-### 8.3 汇总与覆盖报告（A20）
+#### 8.3 汇总与覆盖报告（A20）
 
-#### 8.3.1 Markdown 汇总
+##### 8.3.1 Markdown 汇总
 
 结构：
 
@@ -1397,7 +1406,7 @@ return SectionDraft(
 - 章节按 `order` 排序；
 - 章节正文去除首尾空白。
 
-#### 8.3.2 章节统计
+##### 8.3.2 章节统计
 
 对每个草稿：
 
@@ -1405,7 +1414,7 @@ return SectionDraft(
 - 统计字数：去除空白后的字符数；
 - 记录策略、修订前后得分、修订次数、关联评分因素、检索片段数。
 
-#### 8.3.3 格式覆盖
+##### 8.3.3 格式覆盖
 
 对每个投标格式条目：
 
@@ -1421,7 +1430,7 @@ item_key in plan_key or plan_key in item_key
 
 命中 → 记录 `section_id`、`section_title`、`strategy`；未命中 → `missing`。
 
-#### 8.3.4 评分覆盖
+##### 8.3.4 评分覆盖
 
 对每个评分因素：
 
@@ -1438,7 +1447,7 @@ covered = bool(section_ids)
 - 没有模糊匹配；
 - 未覆盖且分值非空 → 生成警告。
 
-#### 8.3.5 报告字段
+##### 8.3.5 报告字段
 
 ```text
 BidReport:
@@ -1448,7 +1457,7 @@ BidReport:
   placeholders[], missing_profile_fields[], warnings[]
 ```
 
-#### 8.3.6 摘要统计
+##### 8.3.6 摘要统计
 
 `bid_summary` 基于报告计算：
 
@@ -1458,9 +1467,9 @@ BidReport:
 - 占位符数量：去重后的占位符数；
 - Word 路径：仅当文件存在时返回。
 
-### 8.4 占位符与缺失资料
+#### 8.4 占位符与缺失资料
 
-#### 8.4.1 占位符
+##### 8.4.1 占位符
 
 正则：
 
@@ -1474,7 +1483,7 @@ BidReport:
 - 去重后排序；
 - 统计的是**不同占位符**，不是出现次数。
 
-#### 8.4.2 缺失字段
+##### 8.4.2 缺失字段
 
 检查 11 个字段：
 
@@ -1492,13 +1501,13 @@ getattr(profile, field) in (None, "", [], {})
 
 `notes` 不参与缺失判定。
 
-#### 8.4.3 提示词约束
+##### 8.4.3 提示词约束
 
 - 资料缺失 → 正文必须写 `【待填写：字段名】`；
 - 不得编造；
 - 报价决策内容只生成占位。
 
-#### 8.4.4 前端归一化
+##### 8.4.4 前端归一化
 
 前端提交前：
 
@@ -1509,15 +1518,15 @@ getattr(profile, field) in (None, "", [], {})
 - JSON 语法/类型错误 → 禁止提交；
 - 非法 JSON 不覆盖上一次有效结构。
 
-### 8.5 Markdown → Word（A21）
+#### 8.5 Markdown → Word（A21）
 
-#### 8.5.1 样式
+##### 8.5.1 样式
 
 - 正文：宋体 11pt；
 - 标题：黑体；
 - 表格：Table Grid。
 
-#### 8.5.2 行级解析
+##### 8.5.2 行级解析
 
 按行扫描：
 
@@ -1532,7 +1541,7 @@ getattr(profile, field) in (None, "", [], {})
 | `---` | 分页符 |
 | 其他 | 普通段落 |
 
-#### 8.5.3 表格解析
+##### 8.5.3 表格解析
 
 - 去掉首尾 `|`；
 - 按 `|` 拆分单元格；
@@ -1540,7 +1549,7 @@ getattr(profile, field) in (None, "", [], {})
 - 列数取所有行的最大值；
 - 缺失单元格补空。
 
-#### 8.5.4 粗体
+##### 8.5.4 粗体
 
 正则：
 
@@ -1550,7 +1559,7 @@ getattr(profile, field) in (None, "", [], {})
 
 按匹配位置拆分为普通 run 和粗体 run。
 
-#### 8.5.5 局限
+##### 8.5.5 局限
 
 - 不处理斜体、链接、图片、嵌套列表、脚注；
 - 代码围栏仅按普通段落输出；
@@ -1559,9 +1568,9 @@ getattr(profile, field) in (None, "", [], {})
 
 ---
 
-## 9. 任务状态与进度（A22）
+### 9. 任务状态与进度（A22）
 
-### 9.1 状态映射
+#### 9.1 状态映射
 
 | 队列状态 | API 状态 |
 |---|---|
@@ -1571,7 +1580,7 @@ getattr(profile, field) in (None, "", [], {})
 | `FAILURE` / `REVOKED` | `failed` |
 | 其他 | `running` |
 
-### 9.2 进度节流
+#### 9.2 进度节流
 
 `_ProgressReporter`：
 
@@ -1598,13 +1607,13 @@ def report(message):
         pass
 ```
 
-### 9.3 排队判断
+#### 9.3 排队判断
 
 - 队列模式：队列长度；
 - 本地模式：`pending + running` 数量；
 - 达到 `API_MAX_PENDING_JOBS` → 429。
 
-### 9.4 任务保留
+#### 9.4 任务保留
 
 - 队列结果与任务标记默认 24 小时；
 - 过期查询 → 404；
@@ -1612,9 +1621,9 @@ def report(message):
 
 ---
 
-## 10. 参数与复杂度
+### 10. 参数与复杂度
 
-### 10.1 参数速查
+#### 10.1 参数速查
 
 | 参数 | 默认 | 所属算法 |
 |---|---|---|
@@ -1643,7 +1652,7 @@ def report(message):
 | 进度节流 | 0.5 秒 | 任务 |
 | 进度保留 | 50 条 | 任务 |
 
-### 10.2 复杂度
+#### 10.2 复杂度
 
 | 算法 | 时间 | 空间 | 说明 |
 |---|---|---|---|
@@ -1663,9 +1672,9 @@ def report(message):
 
 ---
 
-## 11. 边界与失效模式
+### 11. 边界与失效模式
 
-### 11.1 文档结构
+#### 11.1 文档结构
 
 | 场景 | 行为 | 风险 |
 |---|---|---|
@@ -1676,7 +1685,7 @@ def report(message):
 | 目录页误判 | 正文页被跳过 | 少量正文丢失 |
 | 扫描件无文字 | 无法解析正文 | 入库失败，需要 OCR |
 
-### 11.2 分片与合并
+#### 11.2 分片与合并
 
 | 场景 | 行为 | 风险 |
 |---|---|---|
@@ -1687,7 +1696,7 @@ def report(message):
 | ZIP 路径穿越 | 拒绝解压 | 安全 |
 | ZIP 解压炸弹 | 超过体积上限拒绝 | 安全 |
 
-### 11.3 抽取
+#### 11.3 抽取
 
 | 场景 | 行为 | 风险 |
 |---|---|---|
@@ -1699,7 +1708,7 @@ def report(message):
 | 类别不规范 | 归一化到“其他” | 评分因素分类不精确 |
 | 空白模板 | 格式标题兜底 | 避免格式条目缺失 |
 
-### 11.4 检索
+#### 11.4 检索
 
 | 场景 | 行为 | 风险 |
 |---|---|---|
@@ -1709,7 +1718,7 @@ def report(message):
 | 片段太短 | 无书签兜底过滤 | 可能丢失短页正文 |
 | 目录页误判 | 跳过整页 | 少量正文丢失 |
 
-### 11.5 编写
+#### 11.5 编写
 
 | 场景 | 行为 | 风险 |
 |---|---|---|
@@ -1722,7 +1731,7 @@ def report(message):
 | Word 导出失败 | 记录警告，继续 | 无 Word 文件 |
 | 资料为空 | 大量占位符 | 需人工补全 |
 
-### 11.6 任务
+#### 11.6 任务
 
 | 场景 | 行为 | 风险 |
 |---|---|---|
@@ -1734,7 +1743,7 @@ def report(message):
 
 ---
 
-## 12. 算法与代码映射
+### 12. 算法与代码映射
 
 | 算法 | 代码入口 | 关键常量/配置 |
 |---|---|---|
@@ -1765,9 +1774,9 @@ def report(message):
 
 ---
 
-## 13. 验证与测试
+### 13. 验证与测试
 
-### 13.1 算法级测试
+#### 13.1 算法级测试
 
 | 测试文件 | 覆盖算法 |
 |---|---|
@@ -1779,7 +1788,7 @@ def report(message):
 | `tests/test_bid_writer_export.py` | A21 |
 | `tests/test_celery.py` / `test_api.py` / `test_bid_api.py` | A22 与任务接口 |
 
-### 13.2 关键回归
+#### 13.2 关键回归
 
 1. **无书签 PDF 分块回归**  
    72 页、无书签、有正文的招标文件：
@@ -1799,7 +1808,7 @@ def report(message):
 5. **缓存失效**  
    解析器或提示词版本变化时，旧单元缓存整体作废。
 
-### 13.3 手工验证建议
+#### 13.3 手工验证建议
 
 - 有书签 PDF：检查章节数、页码归属、章节正文；
 - 无书签 PDF：检查章节数为 0、分块按页、目录页被跳过；
@@ -1810,35 +1819,35 @@ def report(message):
 
 ---
 
-## 14. 设计取舍
+### 14. 设计取舍
 
-### 14.1 为什么以书签为章节骨架
+#### 14.1 为什么以书签为章节骨架
 
 - 目录页会污染正文标题识别；
 - 字体元数据可能损坏；
 - 书签是 PDF 中最稳定的层级来源；
 - 无书签时才退化为按页/全文处理。
 
-### 14.2 为什么按章抽取而不是整篇
+#### 14.2 为什么按章抽取而不是整篇
 
 - 上下文与输出预算有限；
 - 单章失败不影响整篇；
 - 单元缓存支持中断续跑；
 - 合并阶段可以按字段去重与补全。
 
-### 14.3 为什么分块以章节为基本单位
+#### 14.3 为什么分块以章节为基本单位
 
 - 法条、评分细则常以条款为语义单元；
 - 固定窗口会拦腰截断条款；
 - 只有超长章节才硬切，尽量保持语义完整。
 
-### 14.4 为什么只保留不降分的修订
+#### 14.4 为什么只保留不降分的修订
 
 - 模型修订可能引入新问题；
 - 评审分数存在波动；
 - 保留最佳版本比盲目采纳最后一次更稳。
 
-### 14.5 为什么覆盖匹配使用标题包含
+#### 14.5 为什么覆盖匹配使用标题包含
 
 - 模型生成的章节标题与招标格式条目通常只有编号/措辞差异；
 - 规范化后互相包含是较稳的匹配；
@@ -1846,7 +1855,7 @@ def report(message):
 
 ---
 
-## 15. 已知局限
+### 15. 已知局限
 
 1. 无书签 PDF 无法恢复章节层级，只能按页检索；
 2. 纯图片/扫描件没有可识别正文时仍无法入库；
@@ -1863,7 +1872,7 @@ def report(message):
 
 ---
 
-## 16. 附录：关键常量汇总
+### 16. 附录：关键常量汇总
 
 ```text
 # 分片
@@ -1910,3 +1919,193 @@ JOB_TTL = 86400
 ---
 
 *文档结束。*
+
+---
+
+## 第二部分　投标编写代码精读（原《代码精读-投标编写》）
+
+> 范围：[`src/bid_writer/`](../src/bid_writer/)、[`src/pipeline.py`](../src/pipeline.py) 的 `run_bid_writer` 与 [`src/vectorstore/retrieval.py`](../src/vectorstore/retrieval.py)
+> 配套：[`code-guide.md`](code-guide.md) 第三层、本文件第一部分 A17–A21、[`api-contract.md`](api-contract.md) §7–8。
+> 本笔记只做「逐阶段导读 + 设计要点」，不复制大段源码。行号为当前 main 快照（2026-11-06），代码演进后可能漂移，定位以符号名为准。
+
+### 一、端到端链路速览
+
+一次投标编写 = 6 个阶段，全部由 [`run_bid_writer`](../src/pipeline.py)（`src/pipeline.py`，约 L305 起）串起来：
+
+```
+① 规划大纲   plan_sections()          agents.py
+② 准备检索   ChromaRetriever()        vectorstore/retrieval.py
+③ 并行写作   run_write_pipeline()     graph.py
+④ 单章循环   section_agent()          agents.py   （写→评→改，可能多轮）
+⑤ 汇总报告   assemble_markdown()       assembly.py
+              build_report()
+⑥ 导出 Word  markdown_to_docx()       docx_export.py
+```
+
+数据形态随阶段演进：`TenderDocument`（抽取）→ `list[SectionPlan]`（大纲）→ `list[SectionDraft]`（草稿）→ `BidReport`（报告）。
+
+### 二、入口：`run_bid_writer`（总装）
+
+位置：[`src/pipeline.py`](../src/pipeline.py) 的 `run_bid_writer`（约 L305–L421）。
+
+按阶段读：
+
+| 阶段 | 关键调用 | 要点 |
+|---|---|---|
+| 组装 | `BidderProfile.from_dict`、`WriteOptions.from_dict`、`load_extraction` | 资料/参数容忍缺省；读取 `extraction.json` |
+| ① 规划大纲 | `plan_sections` | 传入 `target_words`、`max_sections` |
+| ②③ 检索与扇出 | `ChromaRetriever`、`run_write_pipeline` | `collection_name(tender.doc_type)` 决定集合名；`doc_id` 过滤 |
+| ⑤⑥ 汇总落盘 | `assemble_markdown`、`build_report`、`markdown_to_docx` | Word 导出失败只进 `warnings`，不阻断 Markdown 与报告 |
+
+**记住**：入口只负责「组装 + 编排 + 落盘」，具体智能逻辑都在 [`agents.py`](../src/bid_writer/agents.py) / [`graph.py`](../src/bid_writer/graph.py)。产物目录是 `upload/bids/<doc_id>-<时间戳>/`。
+
+### 三、阶段① 大纲规划：`plan_sections`
+
+位置：[`agents.py`](../src/bid_writer/agents.py) 的 `plan_sections`（L44）。
+
+三层结构：
+
+```
+plan_sections (L44)
+  ├─ _planner_llm()       L66   LLM 策划（失败返回空）
+  ├─ _fallback_outline()  L96   确定性兜底（无模型）
+  └─ _normalize_outline() L191  归一化（兜底合流）
+```
+
+#### 3.1 三个子函数各做什么
+
+| 函数 | 位置 | 职责 | 失败策略 |
+|---|---|---|---|
+| `_planner_llm` | L66 | 用 `build_planner_prompt` 求 JSON，逐条转 `SectionPlan` | 单条非法 `continue`，整体异常返回 `[]` |
+| `_fallback_outline` | L96 | 从 `bid_format_items` + `evaluation_factors` 确定性拼大纲 | 纯规则，不调模型 |
+| `_normalize_outline` | L191 | 去重 + 补格式 + 映射评分 + 排序截断 | 兜底与 LLM 结果共用同一出口 |
+
+#### 3.2 归一化四步（对照第一部分 8.1.4）
+
+| 步骤 | 位置 | 要点 |
+|---|---|---|
+| 去重 | `_dedup_by_title` L213 | 标题去空白后查重，保留第一条 |
+| 补格式 | `_normalize_outline` L191 | 缺失的格式条目追加 `placeholder` 章节，`order=10**6` 排到最后 |
+| 映射评分 | `_map_scoring_factors` L235 | 三套匹配：已在 factors → 标题包含 → 分类关键词 |
+| 排序截断 | `_order_and_limit` L303 | **优先保留 `generate`**，再按 order 重排，`_renumber`（L315）重编号 |
+
+> `_title_covered`（L227）用「标题互相包含」判断覆盖，与 `_map_scoring_factors`（L235）内的 `normalize_title(name) in normalize_title(plan.title)` 是两处不同的模糊匹配：前者判断「格式条目不重复」，后者判断「评分因素归属哪个章节」。
+
+### 四、阶段② 检索准备：`ChromaRetriever`
+
+位置：[`retrieval.py`](../src/vectorstore/retrieval.py) 的 `ChromaRetriever`（L16）。
+
+| 符号 | 位置 | 要点 |
+|---|---|---|
+| `__init__` | L19 | 共享查询器，`get_collection` 失败时 `self.collection=None` 降级；`doc_id` 作为 `where` 过滤 |
+| `search` | L37 | 用互斥锁 `self._lock` 串行化 `query`，失败返回空 |
+| `_to_chunks` | L50 | 检索结果归一化为片段字典 |
+
+**核心约束**（A17）：多角色并行写作时若各自 `new PersistentClient` 会触发 Chroma 租户错误，所以一轮编写只建**一个**检索器，查询用锁串行。这是「并行写作、串行检索」的关键，对应 [`graph.py`](../src/bid_writer/graph.py) 中检索在扇出前完成。
+
+### 五、阶段③ 并行写作：`run_write_pipeline`
+
+位置：[`graph.py`](../src/bid_writer/graph.py) 的 `run_write_pipeline`（L23，全文 65 行）。
+
+- 检索在扇出前串行完成：占位章节直接给空片段，其余章节统一调 `retrieve(query, top_k)`；
+- `ThreadPoolExecutor(max_workers=settings.bid_writer_max_concurrency)` 按章节扇出 `section_agent`；
+- `as_completed` 收集后按 `plan.order` 排序返回；
+- 没有状态图与运行时自主决策，Planner/Writer/Reviewer/Reviser 是职责固定的函数节点。
+
+### 六、阶段④ 单章循环：`section_agent`
+
+位置：[`agents.py`](../src/bid_writer/agents.py) 的 `section_agent`（L326–L366）。
+
+```
+占位章节 → placeholder_section() L367，直接返回【待填写：标题】，不调模型
+普通章节 → _writer() L372 → _reviewer() L377
+           while 分数 < min_score 且 revisions < max_revisions:
+               _reviser() L390 → 再评审
+               仅当新分 >= 旧分才采纳
+```
+
+| 关键函数 | 位置 | 失败策略 |
+|---|---|---|
+| `_writer` | L372 | 经 `_generate_text`（L404），空内容抛 `BidWriteError`（整章失败） |
+| `_reviewer` | L377 | `_generate_json`（L412）异常/解析失败降级为 `score=0`（不抛） |
+| `_reviser` | L390 | 同 `_writer`，空内容抛 `BidWriteError` |
+
+**设计要点**：
+
+- 「修订不降分才采纳」避免越改越差；
+- 评审给 0 分不阻断，占位/低质量草稿仍会被汇总进报告并标 `warning`。
+
+### 七、提示词：`build_*_prompt`
+
+位置：[`prompts.py`](../src/bid_writer/prompts.py)。
+
+| 构造器 | 位置 | 输出格式 | 硬约束 |
+|---|---|---|---|
+| `build_planner_prompt` | L187 | JSON（sections） | 覆盖评分维度 + 逐条格式 |
+| `build_writer_prompt` | L230 | Markdown 正文 | 不编造、缺失写占位符、不报价 |
+| `build_reviewer_prompt` | L253 | JSON（score/points/issues/suggestions） | 0-100，四维度 |
+| `build_reviser_prompt` | L266 | Markdown 正文 | 与 writer 一致 |
+
+**贯穿全链路的硬约束**集中在 `_build_system_rules`（L17）：**不编造、缺失写 `【待填写：xxx】`、报价只给占位**。这是产品「草稿 + 人工复核」定位的代码落点。
+
+辅助：`_profile_text`（L145）把 `BidderProfile` 转成提示词可读文本，`_tender_summary`（L216）抽取项目摘要。
+
+### 八、阶段⑤ 汇总与覆盖报告：`assembly.py`
+
+位置：[`assembly.py`](../src/bid_writer/assembly.py)。
+
+| 函数 | 位置 | 职责 |
+|---|---|---|
+| `assemble_markdown` | L34 | 合并标题 + 目录 + 各章正文成 `bid.md` |
+| `build_report` | L57 | 产 `BidReport`，输出 `report.json` |
+
+覆盖报告四类计算（对照第一部分 8.3.2–8.4.2）：
+
+| 覆盖类型 | 实现位置 | 规则 |
+|---|---|---|
+| 章节统计 | `_char_count`（L19） | 字数=去空白字符数 |
+| 格式覆盖 | `build_report` | 标题互相包含即命中 |
+| 评分覆盖 | `build_report` | **只精确名称匹配**（比大纲映射更严格，遗漏写 warning） |
+| 占位符 | `extract_placeholders`（`schema.py` L85） | 全篇去重 + 排序 |
+
+> 一个容易混淆点：大纲阶段 `_map_scoring_factors`（粗匹配）与报告阶段 `BidReport.summary`（`schema.py` L282，精确匹配）标准不同，可能出现「大纲里归了该因素但报告未标记 covered」。
+
+### 九、阶段⑥ Word 导出：`docx_export.py`
+
+位置：[`docx_export.py`](../src/bid_writer/docx_export.py)，入口 `markdown_to_docx`（L27）。
+
+| 符号 | 位置 | 要点 |
+|---|---|---|
+| `_render_body` | L78 | 行级解析：代码围栏、表格、标题、列表、分页符、段落 |
+| `_set_default_style` | L253 | 正文宋体 11pt |
+| `_add_line` / `_add_heading` | L261 / L281 | 行级分派；标题黑体、`**` 拆 run |
+| `_add_table` | L318 | Markdown 表格 → `Table Grid` |
+| `_add_cover` / `_add_toc` | L119 / L151 | 封面与目录域 |
+
+**能力边界**（文件头 docstring 明确）：不处理斜体、链接、图片、嵌套列表、脚注。`bid.docx` 是「够用但不全」的还原，真正的结构化产物仍是 `bid.md` + `report.json`。
+
+### 十、失败兜底与降级策略总表
+
+| 环节 | 失败表现 | 去向 |
+|---|---|---|
+| LLM 策划 | 异常/空 | 回退 `_fallback_outline` 确定性大纲 |
+| 检索建集合 | `get_collection` 异常 | `collection=None`，查询返回空，不阻断写作 |
+| 检索查询 | 异常 | 返回空列表 |
+| 写作/修订 | 空内容 | 抛 `BidWriteError`，任务失败 |
+| 评审 | 异常/解析失败 | 降级 `score=0`，不抛 |
+| Word 导出 | 异常 | `report.warnings` 记一条，Markdown/报告仍产出 |
+
+设计哲学：**「确定性产物优先，模型是增强」**——大纲有兜底、检索可空、评审可降级；但写作/修订空内容视为硬失败（因为没正文就无从汇总）。
+
+### 十一、改动指南（按你想动的位置）
+
+| 想改什么 | 看哪里 |
+|---|---|
+| 章节策略/占位符/缺失字段逻辑 | `schema.py`：`choose_strategy` L71、`extract_placeholders` L85、`WriteOptions` L208 |
+| 大纲生成规则 | `agents.py`：`plan_sections` 及其子函数 L44–L315 |
+| 单个章节写/评/改循环 | `agents.py`：`section_agent` L326–L366 |
+| 并发行/检索串行 | `graph.py` L23 + `retrieval.py` |
+| 提示词话术/硬约束 | `prompts.py` 全文件 |
+| 覆盖报告字段/判定 | `assembly.py` L57 + `schema.py` 的 `BidReport`（L249） |
+| Word 还原能力 | `docx_export.py` 全文件 |
+| 对应测试 | `tests/test_bid_writer.py`、`tests/test_bid_writer_export.py` |

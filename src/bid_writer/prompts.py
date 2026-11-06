@@ -39,11 +39,9 @@ _REVISER_SYSTEM = f"""你是投标文件修订助手。根据评审意见修订�
 _PLANNER_SYSTEM = """你是投标文件编写策划助手。根据评分办法、投标文件格式与投标人资料，
 规划一份投标文件的章节大纲。只输出一个 JSON 对象：
 
-{"""
-{"sections": [{"title": "章节标题", "strategy": "generate|fill_template|placeholder",
+{{"sections": [{{"title": "章节标题", "strategy": "generate|fill_template|placeholder",
 "target_words": 1200, "scoring_factors": ["关联评分因素名"], "requirements": "写作要点",
-"retrieval_query": "检索关键词"}]}
-""".strip()}
+"retrieval_query": "检索关键词"}}]}}
 
 规则：
 - 章节总数建议不超过 {max_sections} 个；
@@ -88,9 +86,7 @@ _WRITER_USER = """章节标题：{title}
 
 _REVIEWER_SYSTEM = """你是投标文件评审助手。对给定章节正文进行评审，只输出一个 JSON 对象：
 
-{"""
 {"score": 0, "covered_points": ["已覆盖要点"], "issues": ["问题"], "suggestions": ["改进建议"], "placeholder_count": 0}
-""".strip()}
 
 规则：
 - score 为 0–100 整数，从完整性、针对性、可执行性、与评分细则对应程度四个维度综合；

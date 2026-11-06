@@ -23,11 +23,9 @@ class Settings(BaseSettings):
 
     # ---- 文本模型（DeepSeek）----
     deepseek_api_key: str = ""
-    llm_provider: str = "deepseek"
     deepseek_model: str = "deepseek-flash"
     deepseek_base_url: str = "https://ark.cn-beijing.volces.com/api/coding/v3"
     llm_timeout: int = 120
-    llm_max_retries: int = 2
     llm_temperature: float = 0.0
     llm_max_tokens: int = 32768
     llm_thinking: str = "disabled"
@@ -62,24 +60,21 @@ class Settings(BaseSettings):
     celery_result_expires: int = 86400
     celery_task_always_eager: bool = False
 
-    # ---- 多 Agent 投标编写 ----
-    bid_writer_max_revisions: int = 1
-    bid_writer_min_score: int = 75
+    # ---- 多角色投标编写工作流 ----
     bid_writer_top_k: int = 6
     bid_writer_max_concurrency: int = 3
-    bid_writer_target_words: int = 1200
     # 模型单价（元 / 千 token），留 0 表示只统计 token 不估算金额
     bid_writer_price_input_per_1k: float = 0.0
     bid_writer_price_output_per_1k: float = 0.0
 
     # ---- 存储（PostgreSQL + Redis）----
-    database_url: str = "postgresql+asyncpg://postgres:123456@localhost:5432/bidding"
+    # 留空则不启用 PostgreSQL，持久化层自动降级；连接串只能由 .env / 环境变量提供，
+    # 代码中不内置任何口令，避免弱口令随仓库分发。
+    database_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
 
     # ---- 云端 PDF 解析（MinerU）----
-    mineru_mode: str = "cloud"
     mineru_api_key: str = ""
-    mineru_endpoint: str = "https://mineru.net/api/v4/extract/task"
     mineru_batch_upload_endpoint: str = "https://mineru.net/api/v4/file-urls/batch"
     mineru_batch_result_endpoint: str = (
         "https://mineru.net/api/v4/extract-results/batch/{batch_id}"
@@ -89,13 +84,10 @@ class Settings(BaseSettings):
     mineru_model_version: str = "vlm"
     mineru_poll_interval: int = 5
     mineru_max_polls: int = 120
-    mineru_max_retries: int = 2
-    mineru_retry_backoff: float = 2.0
     mineru_language: str = "ch"
     mineru_enable_formula: bool = True
     mineru_enable_table: bool = True
     mineru_is_ocr: bool = False
-    mineru_max_file_mb: int = 200
     mineru_max_pages: int = 200
 
     @field_validator("chroma_dir", mode="after")

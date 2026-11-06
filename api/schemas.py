@@ -1,4 +1,4 @@
-"""接口响应模型（与 `开发文档.md` §7 接口规范对齐）。"""
+"""接口响应模型（与 `docs/api-contract.md` §7 接口规范对齐）。"""
 from __future__ import annotations
 
 from typing import Any

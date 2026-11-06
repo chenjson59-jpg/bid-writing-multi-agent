@@ -15,6 +15,8 @@ def local_backend(monkeypatch, tmp_path):
     from src.bid_writer import supplement as supplement_module
 
     monkeypatch.setattr(settings, "task_backend", "local")
+    # 本地 .env 可能配置了 API_TOKEN，测试环境必须显式清空，避免接口用例全部 401
+    monkeypatch.setattr(settings, "api_token", "")
     monkeypatch.setattr(settings, "log_dir", str(tmp_path / "logs"))
     # 测试不连真实 PostgreSQL：持久化降级为无操作，避免连接跨事件循环泄漏
     monkeypatch.setattr(settings, "database_url", "")

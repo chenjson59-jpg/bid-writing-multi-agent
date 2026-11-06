@@ -1,4 +1,4 @@
-"""PyMuPDF 本地解析（核心算法 A7）。
+"""PyMuPDF 本地解析（docs/algorithms.md A7）。
 
 云端不可用或失败时的兜底路径：逐页提取文本与图片，页面级产物统一为
 ParseStage，由 builder 统一做章节还原与落盘。

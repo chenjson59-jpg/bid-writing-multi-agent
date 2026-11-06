@@ -1,10 +1,28 @@
 # 招标文件多智能体系统
 
-解析中文招标文件，抽取结构化要点并写入向量库，为后续多 Agent 标书编写提供输入底座。
+解析中文招标文件，抽取结构化要点并写入向量库，为后续多角色标书编写工作流提供输入底座。
 
-已实现**文档摄取 + 异步 API + 多 Agent 投标文件编写 + 桌面工作台**：解析 →
-结构化抽取 → 向量入库，基于 LangGraph 的 Planner / Writer / Reviewer / Reviser
-编写流程，以及 Electron + React 操作界面。HTTP 接口通过 Celery + Redis 异步执行，统一用 `GET /api/jobs/{job_id}` 轮询。
+已实现**文档摄取 + 异步 API + 多角色投标文件编写工作流 + 桌面工作台**：解析 →
+结构化抽取 → 向量入库，Planner / Writer / Reviewer / Reviser 固定角色协作的
+Plan-and-Execute 风格编写流程（标准库线程池章节级并发），以及 Electron + React 操作界面。HTTP 接口通过 Celery + Redis 异步执行，统一用 `GET /api/jobs/{job_id}` 轮询。
+
+> **关于「多智能体」的命名说明**：产品名沿用「多智能体系统」，但当前实现是
+> **多角色 LLM 工作流（Plan-and-Execute 风格）**——Planner / Writer / Reviewer / Reviser
+> 是职责固定的函数节点，按预定义流程协作，章节级并发由标准库 `ThreadPoolExecutor` 扇出，
+> 不存在运行时自主选择工具或决定下一步的自主 Agent。这样命名与实现严格对应，避免概念夸大；
+> 术语界定见 `AGENTS.md` 第 1 节，选型与修订过程见 `docs/tech-decisions.md` 的 ADR-004。
+> 若未来出现条件分支、人工中断恢复等复杂编排需求，再评估 LangGraph 等图编排框架。
+
+## 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | 需求与业务边界、模块划分与数据流、组件工作机制、开发流程与验证门禁 |
+| [`docs/tech-decisions.md`](docs/tech-decisions.md) | 技术选型对比、架构决策记录（ADR）、技术栈与版本快照 |
+| [`docs/api-contract.md`](docs/api-contract.md) | 接口规范、任务状态、数据规范、配置、安全与故障排查 |
+| [`docs/algorithms.md`](docs/algorithms.md) | 解析/抽取/检索/编写核心算法、投标编写代码精读 |
+| [`docs/code-guide.md`](docs/code-guide.md) | 代码阅读路径与提交前验证门禁 |
+| [`AGENTS.md`](AGENTS.md) | 工程协作规范、LLM/RAG 约束与完成定义 |
 
 ## 目录结构
 
@@ -356,10 +374,10 @@ uv run python scripts/install_demo_data.py
 依据预置章节正文真实计算，覆盖率与正文一致。详见 `examples/demo/README.md`
 （含数据来源声明与 3 分钟演示流程）。
 
-## 投标文件编写（多 Agent）
+## 投标文件编写（多角色工作流）
 
-基于已解析并抽取的招标文件，用 LangGraph 编排 Planner → Writer → Reviewer → Reviser
-多个 Agent，生成投标文件草稿（Markdown + Word）与评分覆盖自检报告。
+基于已解析并抽取的招标文件，由 Planner → Writer → Reviewer → Reviser 固定角色
+协作完成章节规划、写作、评审与修订，生成投标文件草稿（Markdown + Word）与评分覆盖自检报告。
 
 ```bash
 # 1) 先确保该文档已解析并抽取
@@ -425,9 +443,10 @@ npm run electron   # Electron 窗口，加载开发服务器
 npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
 ```
 
-- 开发态使用相对 `/api`，依赖 Vite 代理；打包后的 `file://` 页面默认直连
-  `http://47.117.189.10:8001`，也可用构建期变量 `VITE_API_BASE` 覆盖（本地联调时可改回
-  `http://localhost:8001`）。桌面端启动脚本见仓库根目录 `启动标书桌面端.bat`，无需 SSH 隧道。
+- 开发态使用相对 `/api`，依赖 Vite 代理；代码中不内置任何公网地址，打包后的 `file://`
+  页面必须在构建期通过 `VITE_API_BASE` 显式指定后端地址（本地联调可用
+  `http://localhost:8001`，服务器部署用 `http://<服务器地址>:8001`）。桌面端启动脚本见
+  仓库根目录 `启动标书桌面端.bat`，无需 SSH 隧道。
 - Electron 通过 preload 暴露 `openPath` / `showItemInFolder`，主进程只允许打开
   仓库 `upload/` 下的路径；可用 `BIDDING_UPLOAD_ROOT` 覆盖根目录。
 - 构建后可用 `ELECTRON_LOAD_DIST=1 npm run electron` 验证 `file://` 加载与 IPC。
@@ -448,7 +467,7 @@ Docker 容器里；API 与 worker 跑在 tmux 会话中，SSH 断开不受影响
 
 ```powershell
 cd frontend
-$env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
+$env:VITE_API_BASE='http://<服务器地址>:8001'; $env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
 ```
 
 > 令牌会编译进前端 JS，防的是陌生脚本直接打 API，不是强保密手段；

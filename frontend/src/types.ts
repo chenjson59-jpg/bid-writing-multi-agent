@@ -1,4 +1,4 @@
-// 与后端 `开发文档.md` §7 接口规范对齐的前端类型定义。
+// 与后端 `docs/api-contract.md` §7 接口规范对齐的前端类型定义。
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 

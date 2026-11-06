@@ -1,4 +1,4 @@
-"""书签树读取、页面归属与章节组装（核心算法 A1–A4、A24）。
+"""书签树读取、页面归属与章节组装（docs/algorithms.md A1–A4、A24）。
 
 书签是招标文件唯一可靠的结构来源（目录页会污染正则标题识别）。
 """
@@ -63,7 +63,7 @@ def _printed_to_pdf_offset(
 
     目录页自身也含章节名，故排除形似目录的页面，避免偏移被判成 0。
     """
-    candidates = range(0, 5)
+    candidates = range(5)
     best_offset: int | None = None
     best_score = 0
 

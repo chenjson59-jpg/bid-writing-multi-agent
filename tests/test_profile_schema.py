@@ -11,8 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from src.bid_writer.profile_schema import infer_profile_schema
 from src.bid_writer.schema import PROFILE_FIELD_LABELS
 

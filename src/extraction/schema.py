@@ -1,4 +1,4 @@
-"""抽取 Schema 与宽容字段归一化（核心算法 A11）。
+"""抽取 Schema 与宽容字段归一化（docs/algorithms.md A11）。
 
 模型输出常出现：列表给 `null`、分值写 `"30分"`、布尔写 `"是/否"`、
 类别写近义词、基础字段包在 `basic`/`info`/`project` 子对象中。
@@ -269,7 +269,7 @@ def _empty_extraction() -> dict[str, Any]:
 
 @dataclass
 class TenderDocument:
-    """结构化抽取的最终结果（核心算法 6.11）。
+    """结构化抽取的最终结果（docs/algorithms.md 6.11）。
 
     扁平字段供后续投标编写阶段直接消费；`extraction_meta` 记录模型、提示词
     版本、解析器、耗时、调用数、未核实字段与警告。

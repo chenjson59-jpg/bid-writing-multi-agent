@@ -1,4 +1,4 @@
-"""文本处理工具（核心算法 A8：HTML 表格扁平化）。"""
+"""文本处理工具（docs/algorithms.md A8：HTML 表格扁平化）。"""
 from __future__ import annotations
 
 import re
