@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Any
 
+from src.bid_writer.rules import check_section_rules
 from src.bid_writer.schema import (
     BidReport,
     SectionDraft,
@@ -120,6 +122,19 @@ def build_report(
                 placeholders.append(placeholder)
     placeholders.sort()
 
+    # 确定性规则检查（T-013）：与 LLM 评审分开输出；旧产物还原的草稿无缓存结果时重算
+    rule_checks: list[dict[str, Any]] = []
+    rule_error_count = 0
+    for section, draft in zip(sections, drafts):
+        result = draft.rule_check or check_section_rules(
+            draft.markdown, draft.plan, draft.retrieved, doc_id=doc_id
+        )
+        payload = result.to_dict()
+        section["rule_check"] = payload
+        rule_checks.append(payload)
+        if not result.passed:
+            rule_error_count += 1
+
     return BidReport(
         doc_id=doc_id,
         project_name=project_name,
@@ -133,4 +148,6 @@ def build_report(
         placeholders=placeholders,
         missing_profile_fields=profile.missing_fields(schema=schema),
         warnings=warnings,
+        rule_checks=rule_checks,
+        rule_error_count=rule_error_count,
     )

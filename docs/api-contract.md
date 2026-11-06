@@ -528,7 +528,21 @@ upload/
 | `evaluation_coverage` | 评分因素覆盖情况 |
 | `placeholders` | 去重后的占位符列表 |
 | `missing_profile_fields` | 缺失的投标人资料字段（中文名称） |
-| `warnings` | 编写警告 |
+| `warnings` | 编写警告（未覆盖评分因素等，不含规则检查结果） |
+| `rule_checks` | 每章节一条确定性规则检查结果（T-013），字段同 `sections[*].rule_check` |
+| `rule_error_count` | 规则检查未通过的章节数；`summary` 同步输出该字段 |
+
+`sections[*].rule_check` 结构（确定性、零模型调用，与 LLM 语义评审分开）：
+
+| 字段 | 说明 |
+|---|---|
+| `section_id` | 章节标识 |
+| `passed` | 是否无规则错误 |
+| `citation_markers` | 正文出现的引用标记，去重升序，如 `["[1]", "[3]"]` |
+| `errors` | 规则错误数组，每项 `{"code", "message"}`；码值：`CITE_EMPTY`（无检索却引用）、`CITE_OUT_OF_RANGE`（引用越界）、`CITE_DOC_MISMATCH`（片段不属于当前 doc_id）、`QUOTE_FORBIDDEN`（具体报价/让利/单价） |
+| `placeholders` | 该章节确定性提取的占位符（事实，不计错误） |
+
+旧产物 `report.json` 缺少这些字段时按缺省处理，前端字段为可选。
 
 #### 6.5 命名规则
 

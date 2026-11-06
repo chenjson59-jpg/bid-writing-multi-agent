@@ -113,6 +113,10 @@ chroma_db/                   # 本地向量库
   内容未变的块按 `content_sha256` 跳过重新嵌入。
 - **删文档级联清向量**：删除文档时清理 Chroma 两个已知集合中该 `doc_id` 的全部片段，
   不保留孤儿向量；向量库故障时接口返回 503 且文件保留，可安全重试。
+- **评审与规则检查分离**：LLM Reviewer 只给语义评分；引用越界、无检索却引用、
+  片段 doc_id 不匹配、具体报价/让利等客观项由零模型调用的确定性规则检查器判定
+  （`CITE_*`/`QUOTE_FORBIDDEN` 规则码），结果独立写入 `report.json` 的
+  `rule_checks`，不与语义评审混在一起。
 - **DeepSeek 是推理模型**：`deepseek-flash` 默认开启思考，思维链与正文共享
   `max_tokens`，预算耗尽时会返回空内容。抽取属于机械任务，`.env` 中
   `LLM_THINKING=disabled` 关闭思考后，评分表章节从 59s 降到约 15s；
@@ -209,8 +213,9 @@ curl -X POST "http://127.0.0.1:8001/api/bids" \
 | `export_word` | `true` | 是否同时导出 `bid.docx` |
 
 轮询响应的 `kind="bid"`，`bid` 字段给出摘要：章节数与总字数、格式 / 评分覆盖数、
-未覆盖评分因素、占位符数量、缺失资料、各章节修订前后得分，以及 `bid.md`、
-`bid.docx`、`report.json` 的路径。完整报告仍在 `report.json` 中。
+未覆盖评分因素、占位符数量、缺失资料、各章节修订前后得分、规则错误数
+（`rule_error_count`），以及 `bid.md`、`bid.docx`、`report.json` 的路径。
+完整报告（含每章节确定性规则检查 `rule_checks`）仍在 `report.json` 中。
 
 摘要还包含两类计量字段：
 

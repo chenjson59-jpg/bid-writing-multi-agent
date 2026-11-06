@@ -16,6 +16,7 @@ from src.bid_writer.prompts import (
     build_reviser_prompt,
     build_writer_prompt,
 )
+from src.bid_writer.rules import check_section_rules
 from src.bid_writer.schema import (
     STRATEGY_GENERATE,
     STRATEGY_PLACEHOLDER,
@@ -341,7 +342,19 @@ def section_agent(
     if plan.strategy == STRATEGY_PLACEHOLDER:
         markdown = placeholder_section(plan)
         review = ReviewResult(score=100)
-        return SectionDraft(plan, markdown, review, 100, 100, 0, retrieved)
+        rule_check = check_section_rules(
+            markdown, plan, retrieved, doc_id=getattr(tender, "doc_id", "")
+        )
+        return SectionDraft(
+            plan=plan,
+            markdown=markdown,
+            review=review,
+            score_before=100,
+            score_after=100,
+            revisions=0,
+            retrieved=retrieved,
+            rule_check=rule_check,
+        )
 
     draft = _writer(plan, tender, profile, retrieved, caller, schema=schema)
     review = _reviewer(plan, draft, caller)
@@ -356,6 +369,9 @@ def section_agent(
         if revised_review.score >= best_review.score:
             best_draft, best_review = revised, revised_review
 
+    rule_check = check_section_rules(
+        best_draft, plan, retrieved, doc_id=getattr(tender, "doc_id", "")
+    )
     return SectionDraft(
         plan=plan,
         markdown=best_draft,
@@ -364,6 +380,7 @@ def section_agent(
         score_after=best_review.score,
         revisions=revisions,
         retrieved=retrieved,
+        rule_check=rule_check,
     )
 
 

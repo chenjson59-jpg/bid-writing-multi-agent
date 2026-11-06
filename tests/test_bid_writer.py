@@ -251,3 +251,124 @@ def test_build_report_coverage_and_placeholders():
     assert "法定代表人" in report.missing_profile_fields
     assert "【待填写：法定代表人】" in report.placeholders
     assert any("投标报价" in w for w in report.warnings)
+
+
+# ---- T-013 确定性规则检查接入 ----
+
+
+def _retrieved(doc_id: str = "0123456789abcdef") -> list[dict]:
+    return [
+        {"id": f"{doc_id}:0000", "text": "片段一", "metadata": {"doc_id": doc_id}},
+        {"id": f"{doc_id}:0001", "text": "片段二", "metadata": {"doc_id": doc_id}},
+    ]
+
+
+def test_section_agent_attaches_rule_check_clean():
+    plan = SectionPlan(id="s1", title="施工组织设计", order=1, strategy="generate")
+    caller = ScriptCaller(
+        [
+            (False, "依据原文[1][2]展开的正文"),
+            (True, '{"score": 80, "issues": [], "suggestions": []}'),
+        ]
+    )
+    draft = section_agent(
+        plan, make_tender(), BidderProfile(), _retrieved(),
+        min_score=75, max_revisions=0, caller=caller,
+    )
+
+    assert draft.rule_check is not None
+    assert draft.rule_check.passed is True
+    assert draft.rule_check.citation_markers == ["[1]", "[2]"]
+    # 规则结果与 LLM 语义评审分开存放
+    assert draft.review.score == 80
+    assert draft.to_dict()["rule_check"]["passed"] is True
+
+
+def test_section_agent_flags_citation_violation():
+    plan = SectionPlan(id="s1", title="施工组织设计", order=1, strategy="generate")
+    caller = ScriptCaller(
+        [
+            (False, "只有两条片段却引用[5]"),
+            (True, '{"score": 90, "issues": [], "suggestions": []}'),
+        ]
+    )
+    draft = section_agent(
+        plan, make_tender(), BidderProfile(), _retrieved(),
+        min_score=75, max_revisions=0, caller=caller,
+    )
+
+    codes = [e["code"] for e in draft.rule_check.errors]
+    assert "CITE_OUT_OF_RANGE" in codes
+    # 规则错误不改变 LLM 评分流程与修订行为
+    assert draft.score_after == 90
+
+
+def test_section_agent_placeholder_branch_also_checked():
+    plan = SectionPlan(id="s2", title="投标报价", order=2, strategy="placeholder")
+    draft = section_agent(
+        plan, make_tender(), BidderProfile(), [],
+        min_score=75, max_revisions=1, caller=ScriptCaller([]),
+    )
+
+    assert draft.rule_check is not None
+    assert draft.rule_check.passed is True
+    assert draft.rule_check.placeholders == ["【待填写：投标报价】"]
+
+
+def test_section_draft_rule_check_defaults_none_and_serializes():
+    draft = _draft("第一章", "正文")
+    assert draft.rule_check is None
+    assert draft.to_dict()["rule_check"] is None
+
+
+def test_build_report_aggregates_rule_checks_separate_from_warnings():
+    tender = make_tender()
+    good = SectionDraft(
+        SectionPlan(id="s1", title="施工组织设计", order=1, strategy="generate",
+                    scoring_factors=["施工组织设计"]),
+        "依据[1]撰写",
+        ReviewResult(score=80), 80, 80, 0,
+        retrieved=_retrieved(),
+    )
+    bad = SectionDraft(
+        SectionPlan(id="s2", title="项目管理机构", order=2, strategy="generate"),
+        "无检索却引用[1]，且写 ¥999",
+        ReviewResult(score=70), 70, 70, 0,
+        retrieved=[],
+    )
+    report = assembly.build_report(
+        tender.doc_id, tender.project_name, "公司", [good, bad],
+        tender, BidderProfile(company_name="公司"), datetime(2026, 1, 1),
+    )
+
+    assert len(report.rule_checks) == 2
+    assert report.rule_error_count >= 1
+    section_rules = {s["id"]: s["rule_check"] for s in report.sections}
+    assert section_rules["s1"]["passed"] is True
+    assert section_rules["s2"]["passed"] is False
+    codes = {e["code"] for e in section_rules["s2"]["errors"]}
+    assert {"CITE_EMPTY", "QUOTE_FORBIDDEN"} <= codes
+    # 规则结果独立成字段，不混入既有 warnings（warnings 只含未覆盖评分因素）
+    assert all("CITE_" not in w and "QUOTE_" not in w for w in report.warnings)
+    assert report.summary()["rule_error_count"] == report.rule_error_count
+
+
+def test_build_report_recomputes_rules_for_restored_drafts():
+    # 旧产物还原的草稿没有 rule_check，build_report 基于磁盘正文与 retrieved 重算补齐
+    tender = make_tender()
+    restored = SectionDraft(
+        SectionPlan(id="s1", title="施工组织设计", order=1, strategy="generate",
+                    scoring_factors=["施工组织设计"]),
+        "越界引用[8]",
+        ReviewResult(score=80), 80, 80, 0,
+        retrieved=_retrieved(),
+    )
+    assert restored.rule_check is None
+
+    report = assembly.build_report(
+        tender.doc_id, tender.project_name, "公司", [restored],
+        tender, BidderProfile(company_name="公司"), datetime(2026, 1, 1),
+    )
+
+    assert report.rule_checks[0]["passed"] is False
+    assert report.rule_error_count == 1
