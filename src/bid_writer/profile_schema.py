@@ -7,8 +7,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
-
 
 # ---------- 字段定义 ----------
 # 每个 (profile_key, label, keywords_required, keywords_optional)

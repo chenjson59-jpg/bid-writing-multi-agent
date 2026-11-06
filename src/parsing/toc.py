@@ -63,7 +63,7 @@ def _printed_to_pdf_offset(
 
     目录页自身也含章节名，故排除形似目录的页面，避免偏移被判成 0。
     """
-    candidates = range(0, 5)
+    candidates = range(5)
     best_offset: int | None = None
     best_score = 0
 
