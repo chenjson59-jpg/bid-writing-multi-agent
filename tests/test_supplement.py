@@ -15,6 +15,16 @@ from src.extraction.schema import TenderDocument
 BID_ID = "0123456789abcdef-20260101-000000"
 
 
+class _EmptyRetriever:
+    """补写测试不连真实 Chroma：检索统一返回空列表（与 test_e2e 同模式）。"""
+
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    def search(self, _query, _limit=None):
+        return []
+
+
 class EchoCaller:
     """返回固定正文并附带 usage，用于计量与写作。"""
 
@@ -127,6 +137,9 @@ def bid_env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         supplement, "_load_profile", lambda name: BidderProfile(company_name=name)
     )
+    from src.vectorstore import retrieval
+
+    monkeypatch.setattr(retrieval, "ChromaRetriever", _EmptyRetriever)
     return root
 
 

@@ -17,6 +17,11 @@ from src.vectorstore.embedding import VolcengineEmbeddingFunction
 
 UPSERT_BATCH = 64  # A16.7.2.2 分批 upsert 的默认批大小
 
+COLLECTION_ANNOUNCEMENT = "tender_announcement"
+COLLECTION_DOCUMENT = "tender_document"
+# 删除路径需要扫描的全部已知集合，与 collection_name 的映射保持一致
+KNOWN_COLLECTIONS = (COLLECTION_ANNOUNCEMENT, COLLECTION_DOCUMENT)
+
 _client = None
 _client_lock = threading.Lock()
 
@@ -42,8 +47,8 @@ def collection_name(doc_type: str) -> str:
     `tender_announcement`。
     """
     if doc_type == "announcement":
-        return "tender_announcement"
-    return "tender_document"
+        return COLLECTION_ANNOUNCEMENT
+    return COLLECTION_DOCUMENT
 
 
 def get_client():
@@ -127,3 +132,33 @@ def ingest_document(
         unchanged=unchanged,
         total=collection.count(),
     )
+
+
+def delete_document_vectors(doc_id: str, *, client=None) -> int:
+    """删除两个已知集合中属于 `doc_id` 的全部片段（T-016 级联清理）。
+
+    - 只通过 `list_collections` 读取已存在的集合，绝不 get_or_create 凭空建集合；
+    - 集合缺失或无匹配片段时返回 0，整体幂等，重复删除不报错；
+    - 底层异常统一包装为带 `doc_id` 上下文的 `IngestError`，不静默吞错。
+
+    返回实际删除的片段条数（两个集合相加）。
+    """
+    client = client or get_client()
+    try:
+        existing = {collection.name for collection in client.list_collections()}
+        deleted_total = 0
+        for name in KNOWN_COLLECTIONS:
+            if name not in existing:
+                continue
+            collection = client.get_collection(
+                name, embedding_function=VolcengineEmbeddingFunction()
+            )
+            ids = collection.get(where={"doc_id": doc_id}).get("ids") or []
+            if ids:
+                collection.delete(ids=list(ids))
+                deleted_total += len(ids)
+        return deleted_total
+    except IngestError:
+        raise
+    except Exception as exc:
+        raise IngestError(f"清理文档 {doc_id} 的向量片段失败：{exc}") from exc

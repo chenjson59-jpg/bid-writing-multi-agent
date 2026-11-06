@@ -39,10 +39,11 @@ from src.db.repository import (
     save_profile,
     update_profile,
 )
-from src.errors import BidWriteError
+from src.errors import BidWriteError, IngestError
 from src.observability import job_trace
 from src.observability import metrics as job_metrics
 from src.pipeline import BIDS_DIR, FILES_DIR, PARSED_DIR, _safe_filename
+from src.vectorstore.ingest import delete_document_vectors
 
 router = APIRouter(prefix="/api")
 
@@ -334,11 +335,16 @@ async def delete_bidder_profile(profile_id: int) -> dict[str, bool]:
 def delete_document(
     doc_id: Annotated[str, PathParam(pattern=r"^[0-9a-f]{16}$")],
 ) -> dict[str, bool]:
-    """删除文档的解析结果与上传的原件（P1-7 数据治理）。"""
+    """删除文档的向量片段、解析结果与上传原件（P1-7 数据治理，T-016）。"""
     parsed = PARSED_DIR / doc_id
     originals = list(FILES_DIR.glob(f"{doc_id}_*")) if FILES_DIR.is_dir() else []
     if not parsed.is_dir() and not originals:
         raise HTTPException(404, "文档不存在")
+    # 先清向量再删磁盘文件：向量失败时显式 503 且文件保留，可安全重试（AGENTS.md 5.3）
+    try:
+        delete_document_vectors(doc_id)
+    except IngestError as exc:
+        raise HTTPException(503, "向量索引清理失败，已保留文件，请稍后重试") from exc
     if parsed.is_dir():
         shutil.rmtree(parsed)
     for path in originals:

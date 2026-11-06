@@ -608,7 +608,17 @@ def test_retry_parse_source_missing(client, monkeypatch):
 # ---- 删除文档与产物（P1-7）----
 
 
-def test_delete_document(client, local_backend):
+def test_delete_document(client, local_backend, monkeypatch):
+    from api import routes
+
+    vector_calls: list[str] = []
+
+    def fake_delete_vectors(doc_id: str) -> int:
+        vector_calls.append(doc_id)
+        return 2
+
+    monkeypatch.setattr(routes, "delete_document_vectors", fake_delete_vectors)
+
     parsed = local_backend / "upload" / "parsed" / _DOC_ID
     parsed.mkdir(parents=True)
     (parsed / "content.md").write_text("# 内容", encoding="utf-8")
@@ -622,9 +632,37 @@ def test_delete_document(client, local_backend):
     assert resp.json()["deleted"] is True
     assert not parsed.exists()
     assert not original.exists()
+    # 删文档必须先级联清向量，且只调用一次
+    assert vector_calls == [_DOC_ID]
 
+    # 重复删除 404 在向量清理之前短路；非法 id 422 不进入删除逻辑
     assert client.delete(f"/api/documents/{_DOC_ID}").status_code == 404
     assert client.delete("/api/documents/xyz").status_code == 422
+    assert vector_calls == [_DOC_ID]
+
+
+def test_delete_document_vector_failure_keeps_files(client, local_backend, monkeypatch):
+    from api import routes
+    from src.errors import IngestError
+
+    def broken_delete_vectors(doc_id: str) -> int:
+        raise IngestError("chroma 持久化目录不可用")
+
+    monkeypatch.setattr(routes, "delete_document_vectors", broken_delete_vectors)
+
+    parsed = local_backend / "upload" / "parsed" / _DOC_ID
+    parsed.mkdir(parents=True)
+    (parsed / "content.md").write_text("# 内容", encoding="utf-8")
+    files = local_backend / "upload" / "files"
+    files.mkdir(parents=True)
+    original = files / f"{_DOC_ID}_a.pdf"
+    original.write_bytes(b"%PDF-1.4")
+
+    resp = client.delete(f"/api/documents/{_DOC_ID}")
+    assert resp.status_code == 503
+    # 向量失败时磁盘文件必须保留，允许用户重试
+    assert parsed.is_dir()
+    assert original.is_file()
 
 
 def test_delete_bid(client, local_backend):

@@ -1,10 +1,16 @@
 """检索索引（A15–A17）测试。"""
+from types import SimpleNamespace
+
 import pytest
 
 from src.errors import IngestError
 from src.parsing.models import ParsedDocument, Section
 from src.vectorstore.chunking import chunk_document
-from src.vectorstore.ingest import collection_name, ingest_document
+from src.vectorstore.ingest import (
+    collection_name,
+    delete_document_vectors,
+    ingest_document,
+)
 from src.vectorstore.retrieval import ChromaRetriever
 
 
@@ -259,3 +265,92 @@ def test_retriever_limits_results():
     result = retriever.search("查询", limit=1)
 
     assert len(result) == 1
+
+
+# ---- T-016 删文档级联清向量 ----
+
+
+class FakeVectorClient:
+    """模拟 chroma client：仅实现 list_collections/get_collection，刻意不提供 get_or_create。"""
+
+    def __init__(self, collections=None, *, fail: bool = False):
+        self._collections = collections or {}
+        self._fail = fail
+        self.get_calls: list[str] = []
+
+    def list_collections(self):
+        if self._fail:
+            raise RuntimeError("chroma unavailable")
+        return [SimpleNamespace(name=name) for name in self._collections]
+
+    def get_collection(self, name, embedding_function=None):
+        if self._fail:
+            raise RuntimeError("chroma unavailable")
+        self.get_calls.append(name)
+        return self._collections[name]
+
+
+def _seed_doc(collection: FakeCollection, doc_id: str, indexes: list[int]) -> None:
+    ids = [f"{doc_id}:{i:04d}" for i in indexes]
+    collection.upsert(
+        ids=ids,
+        documents=[f"正文 {cid}" for cid in ids],
+        metadatas=[{"doc_id": doc_id, "chunk_index": i} for i in range(len(ids))],
+    )
+
+
+def test_delete_vectors_cleans_both_collections_only_target_doc():
+    announcement = FakeCollection()
+    document = FakeCollection()
+    _seed_doc(announcement, "abc", [0, 1])
+    _seed_doc(announcement, "xyz", [0])
+    _seed_doc(document, "abc", [0, 1, 2])
+    _seed_doc(document, "xyz", [0, 1])
+    client = FakeVectorClient(
+        {"tender_announcement": announcement, "tender_document": document}
+    )
+
+    deleted = delete_document_vectors("abc", client=client)
+
+    assert deleted == 5
+    assert sorted(announcement.deleted) == ["abc:0000", "abc:0001"]
+    assert sorted(document.deleted) == ["abc:0000", "abc:0001", "abc:0002"]
+    assert announcement.count() == 1
+    assert document.count() == 2
+    assert {v["metadata"]["doc_id"] for v in announcement.store.values()} == {"xyz"}
+    assert {v["metadata"]["doc_id"] for v in document.store.values()} == {"xyz"}
+
+
+def test_delete_vectors_single_collection_present():
+    document = FakeCollection()
+    _seed_doc(document, "abc", [0])
+    client = FakeVectorClient({"tender_document": document})
+
+    assert delete_document_vectors("abc", client=client) == 1
+    assert document.count() == 0
+    assert client.get_calls == ["tender_document"]
+
+
+def test_delete_vectors_missing_collections_returns_zero():
+    client = FakeVectorClient({})
+
+    assert delete_document_vectors("abc", client=client) == 0
+    # 集合不存在时不得 get_or_create 凭空建集合
+    assert client.get_calls == []
+
+
+def test_delete_vectors_no_matching_chunks_returns_zero():
+    document = FakeCollection()
+    _seed_doc(document, "xyz", [0])
+    client = FakeVectorClient({"tender_document": document})
+
+    assert delete_document_vectors("abc", client=client) == 0
+    assert document.deleted == []
+    assert document.count() == 1
+
+
+def test_delete_vectors_wraps_failure_as_ingest_error():
+    client = FakeVectorClient(fail=True)
+
+    with pytest.raises(IngestError, match="abc"):
+        delete_document_vectors("abc", client=client)

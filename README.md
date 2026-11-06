@@ -111,6 +111,8 @@ chroma_db/                   # 本地向量库
   `doubao-embedding-large`），显式传 `encoding_format="float"` 返回浮点向量。
 - **入库幂等**：先 upsert 新块，再删除同一 `doc_id` 下不再存在的旧块；
   内容未变的块按 `content_sha256` 跳过重新嵌入。
+- **删文档级联清向量**：删除文档时清理 Chroma 两个已知集合中该 `doc_id` 的全部片段，
+  不保留孤儿向量；向量库故障时接口返回 503 且文件保留，可安全重试。
 - **DeepSeek 是推理模型**：`deepseek-flash` 默认开启思考，思维链与正文共享
   `max_tokens`，预算耗尽时会返回空内容。抽取属于机械任务，`.env` 中
   `LLM_THINKING=disabled` 关闭思考后，评分表章节从 59s 降到约 15s；
@@ -141,7 +143,7 @@ uv run python -m api
 | GET | `/api/documents` | 已解析文档列表（读取 `upload/parsed`），含 `extraction_reviewed` 核对状态 |
 | GET | `/api/documents/{doc_id}/extraction` | 抽取结果视图：基础字段 + 评分因素 / 资格条件 / 格式条目三张表；无结果返回 **404** |
 | PUT | `/api/documents/{doc_id}/extraction` | 保存人工校正并标记「已核对」（`reviewed_at`），其余抽取信息保留；非法条目 **422** |
-| DELETE | `/api/documents/{doc_id}` | 删除解析结果与上传原件；不存在返回 **404** |
+| DELETE | `/api/documents/{doc_id}` | 级联删除向量片段、解析结果与上传原件；不存在 **404**、向量库故障 **503**（文件保留可重试） |
 | GET | `/api/bids` | 历史投标产物列表（读取 `upload/bids/*/report.json`） |
 | GET | `/api/bids/{bid_id}` | 单份产物摘要（不存在返回 **404**） |
 | DELETE | `/api/bids/{bid_id}` | 删除标书产物目录（不动原始招标文件）；不存在返回 **404** |
@@ -248,7 +250,8 @@ curl -X POST "http://127.0.0.1:8001/api/bids/<bid_id>/supplement"
 - `POST /api/jobs/{job_id}/retry` 从 `task_history` 还原参数：解析任务按
   `doc_id` 找回原件，编写任务还原 profile 与 `max_sections` 等参数；原件或抽取结果
   已被清理时返回 **404**。
-- 删除接口只删除服务端副本：`DELETE /api/documents/{doc_id}` 同时清理解析结果与原件，
+- 删除接口只删除服务端副本：`DELETE /api/documents/{doc_id}` 先级联清理 Chroma
+  向量片段，再删解析结果与原件（向量清理失败返回 503 且保留全部文件），
   `DELETE /api/bids/{bid_id}` 只删产物目录。
 - 保留期由 `DATA_RETENTION_DAYS` 控制（默认 30 天，`0` 表示不自动清理），清理脚本：
 
