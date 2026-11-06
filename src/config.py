@@ -73,7 +73,9 @@ class Settings(BaseSettings):
     bid_writer_price_output_per_1k: float = 0.0
 
     # ---- 存储（PostgreSQL + Redis）----
-    database_url: str = "postgresql+asyncpg://postgres:123456@localhost:5432/bidding"
+    # 留空则不启用 PostgreSQL，持久化层自动降级；连接串只能由 .env / 环境变量提供，
+    # 代码中不内置任何口令，避免弱口令随仓库分发。
+    database_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
 
     # ---- 云端 PDF 解析（MinerU）----

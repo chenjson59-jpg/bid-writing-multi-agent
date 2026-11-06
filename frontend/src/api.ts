@@ -50,16 +50,13 @@ export function describeError(e: unknown): string {
   return e instanceof Error ? e.message : '未知错误'
 }
 
-// 打包后被 Electron 以 file:// 加载时，相对路径 /api 无法命中后端，
-// 此时回退到远程 FastAPI 绝对地址；dev server 下仍走 vite proxy。
-// 构建时可通过 VITE_API_BASE 覆盖（如切回本地后端或换域名）。
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ||
-  (typeof window !== 'undefined' && window.location.protocol === 'file:'
-    ? 'http://47.117.189.10:8001'
-    : '')
+// 接口基址只允许两个来源：
+// - 未配置 VITE_API_BASE：空串，使用相对 /api，走同源托管或 Vite 代理；
+// - 构建期注入 VITE_API_BASE：打包后的 file:// 页面（Electron）显式指向后端。
+// 代码中不内置任何公网主机地址，避免端点随仓库分发。
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
-function apiUrl(path: string): string {
+export function apiUrl(path: string): string {
   return API_BASE + path
 }
 

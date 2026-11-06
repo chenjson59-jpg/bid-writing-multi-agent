@@ -425,9 +425,10 @@ npm run electron   # Electron 窗口，加载开发服务器
 npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
 ```
 
-- 开发态使用相对 `/api`，依赖 Vite 代理；打包后的 `file://` 页面默认直连
-  `http://47.117.189.10:8001`，也可用构建期变量 `VITE_API_BASE` 覆盖（本地联调时可改回
-  `http://localhost:8001`）。桌面端启动脚本见仓库根目录 `启动标书桌面端.bat`，无需 SSH 隧道。
+- 开发态使用相对 `/api`，依赖 Vite 代理；代码中不内置任何公网地址，打包后的 `file://`
+  页面必须在构建期通过 `VITE_API_BASE` 显式指定后端地址（本地联调可用
+  `http://localhost:8001`，服务器部署用 `http://<服务器地址>:8001`）。桌面端启动脚本见
+  仓库根目录 `启动标书桌面端.bat`，无需 SSH 隧道。
 - Electron 通过 preload 暴露 `openPath` / `showItemInFolder`，主进程只允许打开
   仓库 `upload/` 下的路径；可用 `BIDDING_UPLOAD_ROOT` 覆盖根目录。
 - 构建后可用 `ELECTRON_LOAD_DIST=1 npm run electron` 验证 `file://` 加载与 IPC。
@@ -448,7 +449,7 @@ Docker 容器里；API 与 worker 跑在 tmux 会话中，SSH 断开不受影响
 
 ```powershell
 cd frontend
-$env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
+$env:VITE_API_BASE='http://<服务器地址>:8001'; $env:VITE_API_TOKEN='自定义复杂令牌'; npm run build
 ```
 
 > 令牌会编译进前端 JS，防的是陌生脚本直接打 API，不是强保密手段；
