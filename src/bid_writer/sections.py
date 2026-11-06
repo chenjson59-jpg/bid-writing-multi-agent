@@ -28,6 +28,7 @@ from src.bid_writer.schema import (
     SectionPlan,
     WriteOptions,
     extract_placeholders,
+    normalize_strategy,
 )
 from src.errors import BidWriteError
 from src.pipeline import BIDS_DIR, load_extraction
@@ -158,7 +159,7 @@ def section_infos(bid_dir: Path) -> list[dict[str, Any]]:
                 "id": entry["id"],
                 "title": entry["title"],
                 "order": entry["order"],
-                "strategy": entry.get("strategy") or "",
+                "strategy": normalize_strategy(entry.get("strategy")),
                 "locked": bool(entry.get("locked")),
                 "word_count": _char_count(body),
                 "placeholder_count": len(extract_placeholders(body)),

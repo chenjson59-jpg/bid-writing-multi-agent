@@ -56,8 +56,8 @@ def make_tender(**overrides) -> TenderDocument:
 def test_choose_strategy():
     assert choose_strategy("施工组织设计") == "generate"
     assert choose_strategy("项目管理机构") == "generate"
-    assert choose_strategy("投标函") == "fill_template"
-    assert choose_strategy("授权委托书") == "fill_template"
+    assert choose_strategy("投标函") == "llm_fill"
+    assert choose_strategy("授权委托书") == "llm_fill"
     assert choose_strategy("其他内容") == "placeholder"
 
 

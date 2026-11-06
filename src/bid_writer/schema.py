@@ -11,8 +11,11 @@ from typing import Any
 
 # ---- 章节策略（docs/algorithms.md 8.1.3）----
 STRATEGY_GENERATE = "generate"
-STRATEGY_FILL_TEMPLATE = "fill_template"
+STRATEGY_LLM_FILL = "llm_fill"
 STRATEGY_PLACEHOLDER = "placeholder"
+
+# 遗留策略名：旧产物中的 fill_template 与 llm_fill 行为一致，读取时归一化
+LEGACY_STRATEGY_FILL_TEMPLATE = "fill_template"
 
 # 策略关键词（8.1.3 标题关键词 → 策略）
 _GENERATE_KEYWORDS = (
@@ -68,11 +71,22 @@ def normalize_title(title: str) -> str:
     return re.sub(r"\s+", "", title)
 
 
+def normalize_strategy(raw: str | None, *, fallback: str = STRATEGY_PLACEHOLDER) -> str:
+    """归一化章节策略（T-015）：识别新枚举与遗留 `fill_template`，未知值走 fallback。"""
+    if raw == STRATEGY_GENERATE:
+        return STRATEGY_GENERATE
+    if raw in (STRATEGY_LLM_FILL, LEGACY_STRATEGY_FILL_TEMPLATE):
+        return STRATEGY_LLM_FILL
+    if raw == STRATEGY_PLACEHOLDER:
+        return STRATEGY_PLACEHOLDER
+    return fallback
+
+
 def choose_strategy(title: str) -> str:
     """按标题关键词选择章节策略（8.1.3），未命中返回 `placeholder`。"""
     for keyword in _FILL_KEYWORDS:
         if keyword in title:
-            return STRATEGY_FILL_TEMPLATE
+            return STRATEGY_LLM_FILL
     for keyword in _PLACEHOLDER_KEYWORDS:
         if keyword in title:
             return STRATEGY_PLACEHOLDER
@@ -157,6 +171,10 @@ class SectionPlan:
     scoring_factors: list[str] = field(default_factory=list)
     requirements: str = ""
     retrieval_query: str = ""
+
+    def __post_init__(self) -> None:
+        # 统一归一化，覆盖所有构造入口（含 SectionPlan(**dict) 磁盘还原与遗留值）
+        self.strategy = normalize_strategy(self.strategy)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

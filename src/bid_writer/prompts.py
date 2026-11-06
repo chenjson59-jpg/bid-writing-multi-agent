@@ -39,14 +39,14 @@ _REVISER_SYSTEM = f"""你是投标文件修订助手。根据评审意见修订�
 _PLANNER_SYSTEM = """你是投标文件编写策划助手。根据评分办法、投标文件格式与投标人资料，
 规划一份投标文件的章节大纲。只输出一个 JSON 对象：
 
-{{"sections": [{{"title": "章节标题", "strategy": "generate|fill_template|placeholder",
+{{"sections": [{{"title": "章节标题", "strategy": "generate|llm_fill|placeholder",
 "target_words": 1200, "scoring_factors": ["关联评分因素名"], "requirements": "写作要点",
 "retrieval_query": "检索关键词"}}]}}
 
 规则：
 - 章节总数建议不超过 {max_sections} 个；
-- strategy 取值：generate（需要检索原文生成）、fill_template（按固定格式填写）、placeholder（占位模板）；
-- 封面、一览表、偏离表、报价表、声明函、证明文件等填写型条目用 placeholder/fill_template，不得承载评分因素；
+- strategy 取值：generate（需要检索原文生成）、llm_fill（LLM 按固定格式填写投标函/声明等短章节，非确定性模板替换）、placeholder（占位模板）；
+- 封面、一览表、偏离表、报价表、声明函、证明文件等填写型条目用 placeholder/llm_fill，不得承载评分因素；
 - 评分因素（技术/商务/报价等）必须分配给 strategy=generate 的正文章节，每个有分值的评分因素至少归属一个 generate 章节，scoring_factors 必须填因素原名；
 - scoring_factors 只填能在评分办法中对应到的因素名，没有就空数组；
 - 覆盖评标办法中的技术、商务、报价等主要评分维度，并逐个覆盖投标文件格式条目。

@@ -1473,7 +1473,7 @@ flowchart TB
 | 策略 | 行为 |
 |---|---|
 | `generate` | 检索原文后生成正文 |
-| `fill_template` | 按固定格式填写已知信息 |
+| `llm_fill` | LLM 按固定格式填写已知信息（遗留名 `fill_template` 读取时归一化） |
 | `placeholder` | 不调用模型，生成占位模板与 100 分 |
 
 #### 10.4 章节数量限制
@@ -1524,7 +1524,7 @@ flowchart TB
     Done("输出 SectionDraft<br/>前后得分 / 修订次数 / 引用片段")
   end
 
-  Strategy -->|"generate / fill_template"| Retrieve
+  Strategy -->|"generate / llm_fill"| Retrieve
   Write --> Review
   Review --> Min{"得分低于阈值?"}
   Min -->|"否"| Done

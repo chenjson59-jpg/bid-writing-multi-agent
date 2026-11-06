@@ -17,7 +17,9 @@ import { Badge, Banner, Button, Card, Modal, Spinner } from '../ui'
 
 const STRATEGY_LABEL: Record<string, string> = {
   generate: '生成',
-  fill_template: '填模板',
+  llm_fill: 'LLM 填写',
+  // 旧产物中的遗留策略名，后端读取时已归一化为 llm_fill，这里保留兜底展示
+  fill_template: 'LLM 填写',
   placeholder: '占位',
 }
 
