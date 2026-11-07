@@ -467,3 +467,91 @@ def test_bid_report_loading_old_data_without_coverage_fields():
     assert summary["body_factors_covered"] == 0
     assert summary["evidence_factors_covered"] == 0
     assert summary["evaluation_factors_covered"] == 1
+
+
+# ---- T-014 Reviser 完整上下文与修订上限 ----
+
+
+class _RecordingCaller:
+    """记录每次调用的消息，用于断言 Reviser 实际收到的上下文。"""
+
+    def __init__(self, script: list[tuple[bool, str]]):
+        self.script = list(script)
+        self.messages: list[list] = []
+        self.json_modes: list[bool] = []
+
+    def generate(self, messages, json_mode):
+        self.messages.append(messages)
+        self.json_modes.append(json_mode)
+        content = self.script.pop(0)[1] if self.script else ""
+        return {"content": content, "finish_reason": "stop", "json_mode_used": json_mode}
+
+
+def _revision_plan() -> SectionPlan:
+    return SectionPlan(
+        id="s1", title="施工组织设计", order=1, strategy="generate",
+        scoring_factors=["施工组织设计"],
+    )
+
+
+def _revision_retrieved() -> list[dict]:
+    return [
+        {
+            "id": "0123456789abcdef:0000",
+            "text": "仅限本测试出现的检索证据原文 XYZ-777",
+            "metadata": {"doc_id": "0123456789abcdef"},
+        }
+    ]
+
+
+def test_reviser_receives_full_context_and_respects_cap():
+    low = '{"score": 60, "issues": ["针对性不足"], "suggestions": ["补充"]}'
+    caller = _RecordingCaller(
+        [
+            (False, "初稿"),
+            (True, low),
+            (False, "修订稿一"),
+            (True, low),
+            (False, "修订稿二"),
+            (True, low),
+        ]
+    )
+    profile = BidderProfile(company_name="上下文测试公司")
+    draft = section_agent(
+        _revision_plan(), make_tender(project_name="上下文测试项目"), profile,
+        _revision_retrieved(),
+        min_score=75, max_revisions=2, caller=caller,
+    )
+
+    # 上限锁定：两轮修订后即使仍不达标也停止，共 1 次写作 + 2 轮（修订+复评）
+    assert draft.revisions == 2
+    assert len(caller.messages) == 6
+    # 第 3、5 次调用是 Reviser（非 JSON 模式，且不是首次 Writer）
+    reviser_texts = [
+        caller.messages[i][1]["content"]
+        for i in (2, 4)
+        if caller.json_modes[i] is False
+    ]
+    assert len(reviser_texts) == 2
+    for content in reviser_texts:
+        # 四类上下文全部进入修订提示词
+        assert "仅限本测试出现的检索证据原文 XYZ-777" in content
+        assert "[1]" in content
+        assert "上下文测试公司" in content
+        assert "上下文测试项目" in content
+        assert "施工组织设计" in content
+        assert "初稿" in content or "修订稿一" in content
+
+
+def test_max_revisions_zero_skips_reviser():
+    caller = _RecordingCaller(
+        [(False, "初稿"), (True, '{"score": 50, "issues": ["差"], "suggestions": []}')]
+    )
+    draft = section_agent(
+        _revision_plan(), make_tender(), BidderProfile(), _revision_retrieved(),
+        min_score=75, max_revisions=0, caller=caller,
+    )
+
+    assert draft.revisions == 0
+    assert len(caller.messages) == 2  # 仅 Writer + Reviewer
+    assert draft.markdown == "初稿"

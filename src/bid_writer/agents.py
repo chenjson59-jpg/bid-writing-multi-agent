@@ -363,7 +363,9 @@ def section_agent(
     best_draft, best_review = draft, review
     revisions = 0
     while best_review.score < min_score and revisions < max_revisions:
-        revised = _reviser(plan, best_draft, best_review, caller)
+        revised = _reviser(
+            plan, best_draft, best_review, tender, profile, retrieved, caller, schema=schema
+        )
         revised_review = _reviewer(plan, revised, caller)
         revisions += 1
         if revised_review.score >= best_review.score:
@@ -407,8 +409,21 @@ def _reviewer(plan, draft: str, caller) -> ReviewResult:
     )
 
 
-def _reviser(plan, draft: str, review, caller) -> str:
-    messages = build_reviser_prompt(plan, draft, review)
+def _reviser(
+    plan,
+    draft: str,
+    review,
+    tender,
+    profile,
+    retrieved: list[dict[str, Any]],
+    caller,
+    *,
+    schema: dict | None = None,
+) -> str:
+    # T-014：修订必须携带章节计划、评分因素、检索证据与投标人资料，避免越改越偏
+    messages = build_reviser_prompt(
+        plan, draft, review, tender, profile, retrieved, schema=schema
+    )
     return _generate_text(caller, messages)
 
 
