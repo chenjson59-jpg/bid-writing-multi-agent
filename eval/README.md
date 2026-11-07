@@ -63,3 +63,85 @@ pytest 的 `testpaths=["tests"]` 不收集本目录；CI 在离线测试之外�
   注意句末标点也要一致）；不可溯源样本必须在 `meta.json` 场景说明中写明意图；
 - 夹具按章节标题键控，值为按调用顺序消费的返回队列（可表达重试、围栏 JSON、空响应）；
 - 新增样本后按第 5 节流程冻结期望文件，并在第 4 节登记设计意图。
+
+## 7. 字段级评测指标（T-021）
+
+精确匹配回答「产物是否与人工核定期望逐字段一致」，字段指标进一步回答「错了多少、
+错在哪类字段、溯源可信度如何」。两者共用同一次离线运行，精确匹配仍是退出码唯一
+依据，指标不设阈值门禁。实现见 `harness/metrics.py`，纯函数、零网络、可重复。
+
+### 7.1 展平与比较口径
+
+- **标量字段**（5 个基础字段）：精确相等；空串/`None`/空列表视为缺位，双方皆空
+  不进统计；
+- **字符串列表**（`preliminary_review`、三类 requirements、`contract_highlights`
+  以及资格 `thresholds`）：按 multiset 比较，重复元素按出现次数配对；
+- **对象列表**（评分因素/评分表/资格/格式条目）：按身份键配对——
+  `evaluation_factors.name`、`score_table.factor`、`qualifications.requirement`、
+  `bid_format_items.title`；重复身份键按出现次序第 k 个配第 k 个；配对后逐叶子
+  比较，未配上的整条计元素缺失/多余；
+- `doc_id`、`doc_type` 是输入回显，`extraction_meta` 是过程遥测，均不进 P/R
+  （仍由精确匹配守门）；未在 schema 声明的键不参与指标。
+
+差异标签：`missing_field`（FN）、`spurious_field`（FP）、`value_mismatch`
+（FP+FN）、`element_missing`（FN）、`element_spurious`（FP）、
+`type_mismatch`（FP+FN）。值不匹配对称双计数，Precision 与 Recall 同时受损。
+
+### 7.2 未溯源字段率
+
+直接复用生产函数 `src.extraction.extractor.ground_check`，不复制规则：
+
+- 分母（证据单元）= 5 个非空基础标量 + 含非空 `source_quote` 的评分因素/资格；
+- 分子 = 未溯源标签数；空 quote 条目不参与，仅以 `empty_quote_units` 披露；
+- 无 quote 槽位的列表字段（评分表、格式条目、requirements 等）整体不参与。
+
+### 7.3 聚合与当前锁定基线
+
+micro 先汇总计数再算比率（按字段量加权）；macro 对各样本比率等权平均（按文档
+加权）；分母为 0 时 JSON 为 `null`、终端显示 `n/a`。当前 Golden 基线锁定值：
+
+| 样本 | TP | FP | FN | P/R/F1 | 证据单元 | 未溯源 | 未溯源率 |
+|---|---|---|---|---|---|---|---|
+| `01_engineering` | 47 | 0 | 0 | 1.0000 | 13 | 0 | 0.0% |
+| `02_goods` | 25 | 0 | 0 | 1.0000 | 9 | 2 | 22.2% |
+| `03_service` | 31 | 0 | 0 | 1.0000 | 8 | 1 | 12.5% |
+| micro | 103 | 0 | 0 | 1.0000 | 30 | 3 | 10.0% |
+| macro | — | — | — | 1.0000 | — | — | 11.6% |
+
+精确匹配通过时 P/R 必然为 1.0；指标的区分度由 `tests/test_eval_metrics.py`
+中的手写故障注入用例保证，而非由 Golden 现状证明。
+
+### 7.4 JSON 报告（`--out`）
+
+`--out` 写出版本化信封（T-020 的裸列表格式已升级，报告文件不入库、无外部契约）：
+
+```json
+{
+  "schema_version": 1,
+  "samples": [
+    {"name": "...", "passed": true, "diffs": [],
+     "field_metrics": {"counts": {"tp": 0, "fp": 0, "fn": 0},
+                       "precision": null, "recall": null, "f1": null,
+                       "issues": [],
+                       "grounding": {"evidence_units": 0, "ungrounded": 0,
+                                     "ungrounded_rate": null,
+                                     "ungrounded_fields": [],
+                                     "empty_quote_units": 0}},
+     "actual": {}}
+  ],
+  "aggregate": {"micro": {}, "macro": {},
+                "grounding": {"micro": {}, "macro": {}}}
+}
+```
+
+同一结果两次序列化字节一致；报告不含时间戳、随机数或环境相关字段。
+
+### 7.5 防止篡改期望文件制造指标
+
+1. 指标逻辑测试全部使用内联手写数据，改 `expected_extraction.json` 影响不到断言；
+2. Golden 锁定测试固定 TP 47/25/31、micro 103、未溯源 3/30=10% 等绝对值，期望
+   文件被改时精确匹配或锁定数值至少一处变红；
+3. 每份样本重算 `ground_check` 的结果必须与期望文件中的
+   `extraction_meta.ungrounded_fields` 一致，无法虚构溯源状态；
+4. harness 对数据集只读，仓库不存在写期望文件的代码路径；期望文件变更仍须走
+   第 5 节人工冻结流程。
