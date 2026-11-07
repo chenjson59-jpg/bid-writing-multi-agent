@@ -49,6 +49,7 @@ router = APIRouter(prefix="/api")
 
 _VERSION = "0.1.0"  # 与 pyproject.toml 保持同步
 _PDF_HEADER = b"%PDF"
+_UPLOAD_CHUNK_SIZE = 1024 * 1024  # 流式落盘块大小 1 MiB，内存占用与文件大小解耦
 _INCOMING = FILES_DIR / ".incoming"
 _BID_ID_PATTERN = r"^[0-9a-f]{16}-\d{8}-\d{6}$"
 
@@ -75,6 +76,42 @@ def health() -> HealthResponse:
     )
 
 
+async def _stream_upload_to_file(file: UploadFile, tmp: Path) -> str:
+    """流式读取上传文件并写入临时文件，返回 doc_id（全文 SHA-256 前 16 位）。
+
+    固定块大小读取，常驻内存只与块大小相关；增量哈希与整包哈希同值。
+    校验失败或读取异常时清理临时文件后原样抛出。
+    """
+    max_bytes = settings.api_max_upload_mb * 1024 * 1024
+    hasher = hashlib.sha256()
+    total = 0
+    first_chunk = True
+    try:
+        with tmp.open("wb") as out:
+            while True:
+                chunk = await file.read(_UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                total += len(chunk)
+                # 错误优先级与旧实现一致：大小（413）先于文件头（400）
+                if total > max_bytes:
+                    raise HTTPException(
+                        413, f"文件超过大小上限 {settings.api_max_upload_mb} MB"
+                    )
+                if first_chunk:
+                    if not chunk.startswith(_PDF_HEADER):
+                        raise HTTPException(400, "缺少 PDF 文件头")
+                    first_chunk = False
+                hasher.update(chunk)
+                out.write(chunk)
+        if first_chunk:
+            raise HTTPException(400, "文件为空")
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    return hasher.hexdigest()[:16]
+
+
 @router.post("/parse", response_model=ParseAccepted, status_code=202)
 async def create_parse(
     file: Annotated[UploadFile, File()],
@@ -87,20 +124,12 @@ async def create_parse(
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(400, "仅支持 PDF 文件")
 
-    content = await file.read()
-    if len(content) > settings.api_max_upload_mb * 1024 * 1024:
-        raise HTTPException(413, f"文件超过大小上限 {settings.api_max_upload_mb} MB")
-    if not content:
-        raise HTTPException(400, "文件为空")
-    if not content.startswith(_PDF_HEADER):
-        raise HTTPException(400, "缺少 PDF 文件头")
-
-    doc_id = hashlib.sha256(content).hexdigest()[:16]
-
-    # 先写临时文件，再原子转正，避免残留半成品
+    # 流式落盘：固定块读取 + 增量哈希，避免整文件读入内存（T-018）
     _INCOMING.mkdir(parents=True, exist_ok=True)
     tmp = _INCOMING / f"{uuid.uuid4().hex}.pdf"
-    tmp.write_bytes(content)
+    doc_id = await _stream_upload_to_file(file, tmp)
+
+    # 临时文件原子转正，避免残留半成品
     FILES_DIR.mkdir(parents=True, exist_ok=True)
     dest = FILES_DIR / f"{doc_id}_{_safe_filename(filename)}"
     os.replace(tmp, dest)
