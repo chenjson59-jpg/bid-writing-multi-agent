@@ -469,7 +469,11 @@ npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
   `http://localhost:8001`，服务器部署用 `http://<服务器地址>:8001`）。桌面端启动脚本见
   仓库根目录 `启动标书桌面端.bat`，无需 SSH 隧道。
 - Electron 通过 preload 暴露 `openPath` / `showItemInFolder`，主进程只允许打开
-  仓库 `upload/` 下的路径；可用 `BIDDING_UPLOAD_ROOT` 覆盖根目录。
+  仓库 `upload/` 下的路径；可用环境变量 `UPLOAD_ROOT` 覆盖根目录。
+- HTTP 下载分支有可信 origin 白名单（T-019）：默认仅放行本机后端
+  `http://localhost:8001` / `http://127.0.0.1:8001`，远程后端须在启动环境设置
+  `ELECTRON_TRUSTED_ORIGINS`（逗号分隔，与构建期 `VITE_API_BASE` 同源），
+  非可信地址在下载前直接拒绝；`contextIsolation=true`、`nodeIntegration=false` 保持不变。
 - 构建后可用 `ELECTRON_LOAD_DIST=1 npm run electron` 验证 `file://` 加载与 IPC。
 - 切换导航不会中断后台任务：解析/编写任务 ID 会写入 `localStorage`，
   页面刷新后可继续轮询（Celery 结果保留 24 小时）。
