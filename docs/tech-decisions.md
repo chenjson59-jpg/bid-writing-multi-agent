@@ -540,6 +540,8 @@ Python 依赖全部安装在项目 `.venv` 中；`uv run` 会自动使用该环�
 - `ThreadPoolExecutor` + `as_completed` 收集结果，并发度取 `BID_WRITER_MAX_CONCURRENCY`；
 - 结果按 `plan.order` 重排，保证章节顺序确定；
 - 每个章节内部执行「检索 → 写作 → 评审 → 修订」，修订次数有上限；
+- LLM 语义评审之外，`rules.py` 做零模型调用的确定性规则检查（引用有效性、
+  doc_id 归属、报价禁令、占位符事实），结果独立于评分写入报告（T-013）；
 - 最终由 `assemble` 合并 Markdown、生成报告并可选导出 Word。
 
 #### 3.4 文本模型与嵌入服务

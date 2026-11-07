@@ -19,6 +19,19 @@ export interface ParseResult {
   source_name: string
 }
 
+export interface RuleCheckError {
+  code: string
+  message: string
+}
+
+export interface RuleCheck {
+  section_id: string
+  passed: boolean
+  citation_markers: string[]
+  errors: RuleCheckError[]
+  placeholders: string[]
+}
+
 export interface SectionResult {
   id: string
   title: string
@@ -31,6 +44,8 @@ export interface SectionResult {
   placeholder_count: number
   retrieved_count: number
   scoring_factors: string[]
+  // T-013 确定性规则检查结果，旧产物 report.json 可能缺省
+  rule_check?: RuleCheck | null
 }
 
 export interface LlmUsage {

@@ -195,6 +195,24 @@ class ReviewResult:
 
 
 @dataclass
+class RuleCheckResult:
+    """确定性规则检查结果（T-013，AGENTS.md 5.4）。
+
+    与 LLM `ReviewResult` 分开输出：规则检查零模型调用，只陈述可离线复算的
+    客观事实（引用有效性、报价禁令、占位符），不参与 LLM 语义评分。
+    """
+
+    section_id: str
+    passed: bool
+    citation_markers: list[str] = field(default_factory=list)
+    errors: list[dict[str, str]] = field(default_factory=list)
+    placeholders: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class SectionDraft:
     """单个章节的写作结果（docs/algorithms.md 8.2.1）。"""
 
@@ -205,6 +223,7 @@ class SectionDraft:
     score_after: int
     revisions: int
     retrieved: list[dict[str, Any]] = field(default_factory=list)
+    rule_check: RuleCheckResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -219,6 +238,7 @@ class SectionDraft:
             "placeholder_count": len(extract_placeholders(self.markdown)),
             "retrieved_count": len(self.retrieved),
             "scoring_factors": self.plan.scoring_factors,
+            "rule_check": self.rule_check.to_dict() if self.rule_check else None,
         }
 
 
@@ -281,6 +301,9 @@ class BidReport:
     warnings: list[str] = field(default_factory=list)
     # 本次任务的模型用量（P1-5），见 `bid_writer.usage.UsageMeter.summary`
     llm_usage: dict[str, Any] = field(default_factory=dict)
+    # 确定性规则检查（T-013）：每章节一条结果与错误总数，与 LLM 评审分开输出
+    rule_checks: list[dict[str, Any]] = field(default_factory=list)
+    rule_error_count: int = 0
     # 补写产物所基于的原产物 bid_id（P1-1），正常生成为空
     supplement_of: str = ""
     # 生成参数（P1-2）：章节级重写时按原参数执行
@@ -324,6 +347,7 @@ class BidReport:
             "sections": self.sections,
             "warnings": self.warnings,
             "llm_usage": self.llm_usage,
+            "rule_error_count": self.rule_error_count,
             "supplement_of": self.supplement_of,
             "output_dir": self.output_dir,
             "markdown_path": self.markdown_path,
