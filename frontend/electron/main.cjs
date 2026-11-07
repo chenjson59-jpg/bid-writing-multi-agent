@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, net, shell } = require('electron')
+const { isTrustedUrl, resolveTrustedOrigins } = require('./trust.cjs')
 const path = require('node:path')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
@@ -9,6 +10,10 @@ const LOAD_DIST = app.isPackaged || process.env.ELECTRON_LOAD_DIST === '1'
 
 // 白名单根目录：仓库 upload/，可用环境变量覆盖（docs/api-contract.md §11.2）。
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || path.resolve(__dirname, '..', '..', 'upload')
+
+// T-019：HTTP 下载可信 origin 白名单，默认仅本机后端；远程后端通过环境变量
+// ELECTRON_TRUSTED_ORIGINS（逗号分隔）注入，仓库内不写死任何主机地址。
+const TRUSTED_ORIGINS = resolveTrustedOrigins(process.env.ELECTRON_TRUSTED_ORIGINS)
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -76,6 +81,10 @@ async function downloadToTemp(url) {
 
 ipcMain.handle('desktop:open-path', async (_event, target) => {
   if (isHttpUrl(target)) {
+    // T-019：下载前强制可信 origin 校验，不通过则不发起任何网络请求
+    if (!isTrustedUrl(target, TRUSTED_ORIGINS)) {
+      return { ok: false, error: '下载地址不在可信后端范围内' }
+    }
     try {
       const local = await downloadToTemp(target)
       const openError = await shell.openPath(local)

@@ -1290,7 +1290,19 @@ window.desktop.showItemInFolder(target: string): Promise<{ ok: boolean; error?: 
 - 可通过环境变量覆盖白名单根目录，适配不同部署结构；
 - 不向页面暴露通用文件系统或命令执行能力。
 
-#### 11.3 浏览器降级
+#### 11.3 HTTP 下载可信 origin 白名单（T-019）
+
+- `desktop:open-path` 的 HTTP(S) 下载分支在 `net.fetch` 前强制做可信 origin 校验，
+  未命中直接返回 `{ ok: false, error: '下载地址不在可信后端范围内' }`，不发起请求；
+- 校验逻辑在 `electron/trust.cjs`（纯函数，含离线单测），按标准化后的 `URL.origin`
+  精确匹配，不做前缀/后缀字符串包含，因此 userinfo 伪装（`http://可信@evil.com`）、
+  后缀伪装（`可信.evil.com`）、`file:`/`javascript:` 等协议均被拒绝；
+- 默认白名单为本机后端 `http://localhost:8001` 与 `http://127.0.0.1:8001`；
+- 远程后端通过主进程环境变量 `ELECTRON_TRUSTED_ORIGINS`（逗号分隔的 origin 列表）
+  扩展，须与构建期 `VITE_API_BASE` 同源；非法条目跳过，不影响其余条目；
+- 仓库代码不内置任何主机地址，远程地址只出现在本地忽略的启动脚本/部署环境中。
+
+#### 11.4 浏览器降级
 
 - 浏览器环境不显示「打开 Word」「打开文件夹」；
 - 下载与 Markdown 预览在浏览器和桌面模式下均可用；
