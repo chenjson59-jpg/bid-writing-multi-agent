@@ -133,6 +133,20 @@ chroma_db/                   # 本地向量库
 - **抽取按章节 map-reduce**：单章超长时递归细分，输出被截断时二分重试；
   每个单元的结果缓存在 `extraction_parts/`，中断后可续跑。
 
+## 离线评测（Golden Data）
+
+`eval/` 维护手工构造的合成中文招标样本（工程/货物/服务三类场景），每份包含招标
+Markdown、脚本化假模型夹具与人工核定的期望抽取产物，全程离线、零网络依赖：
+
+```powershell
+uv run python -m eval.harness.runner          # 精确匹配基线，失配退出码 1
+uv run pytest -q                              # eval harness 自身的单元测试在 tests/ 内
+```
+
+样本刻意覆盖脏数据归一化（字符串分值、null、非法条目）、代码围栏/空响应重试、
+未溯源字段（`ungrounded_fields`）等边界；新增样本与冻结流程见 `eval/README.md`。
+真实模型效果评测（T-021/T-022）将在该底座上扩展，不混入单元测试。
+
 ## HTTP API
 
 ```bash

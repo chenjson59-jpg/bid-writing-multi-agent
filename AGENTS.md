@@ -81,8 +81,9 @@ README、文档和简历只能描述已实现并可验证的能力；未实际�
 ### 4.3 验证命令
 
 ```powershell
-uv run ruff check api src tests scripts
+uv run ruff check api src tests scripts eval
 uv run pytest -q
+uv run python -m eval.harness.runner
 cd frontend
 npm test
 npm run build
@@ -196,6 +197,7 @@ npm run build
 - 新增或变化的 API、配置、数据库结构、文件产物有测试覆盖；
 - `uv run pytest -q` 与 `uv run ruff check api src tests scripts` 通过；
 - 前端变更时 `npm run build` 通过，逻辑变更时 `npm test` 通过；
+- 抽取链路相关变更后 `uv run python -m eval.harness.runner` 三份 Golden 样本全部匹配；
 - 没有无说明的跳过测试、调试代码、硬编码密钥或服务器地址；
 - LLM 降级、无检索、无依据内容、占位符与人工待办均有明确状态；
 - 数据库与接口变化具备兼容性、迁移与回滚方案；

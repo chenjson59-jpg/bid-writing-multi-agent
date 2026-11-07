@@ -1,0 +1,104 @@
+{
+  "doc_id": "golden01eng00001",
+  "doc_type": "tender_file",
+  "project_name": "临江县第三水厂扩建工程施工",
+  "tender_no": "LJ-2026-SG-018",
+  "budget_amount": "3200万元",
+  "bid_deadline": "2026 年 11 月 20 日 09 时 30 分",
+  "bid_open_place": "临江县公共资源交易中心第二开标室",
+  "evaluation_factors": [
+    {
+      "category": "报价",
+      "name": "投标报价",
+      "score": 40.0,
+      "source_quote": "投标报价以评标基准价为基准，每高 1% 扣 2 分，每低 1% 扣 1 分。"
+    },
+    {
+      "category": "技术",
+      "name": "施工组织设计",
+      "score": 25.0,
+      "source_quote": "施工组织设计评审施工方案、进度计划、质量保证与安全文明施工措施。"
+    },
+    {
+      "category": "商务",
+      "name": "项目管理机构",
+      "score": 15.0,
+      "source_quote": "项目管理机构评审项目经理、技术负责人及主要管理人员的资格与业绩。"
+    },
+    {
+      "category": "商务",
+      "name": "类似项目业绩",
+      "score": 15.0,
+      "source_quote": "类似项目业绩评审近三年同类供水工程业绩数量与规模。"
+    },
+    {
+      "category": "商务",
+      "name": "财务状况",
+      "score": 5.0,
+      "source_quote": "财务状况评审近三年营业收入、资产负债率与净利润情况。"
+    }
+  ],
+  "preliminary_review": [
+    "形式评审：投标文件签字盖章齐全、格式符合要求",
+    "资格评审：营业执照、资质证书、安全生产许可证有效",
+    "响应性评审：工期、质量目标、投标有效期满足要求"
+  ],
+  "score_table": [
+    {
+      "factor": "投标报价",
+      "score": "40 分",
+      "comment": "基准价浮动评分"
+    },
+    {
+      "factor": "施工组织设计",
+      "score": "25 分",
+      "comment": "方案、进度、质量、安全"
+    }
+  ],
+  "qualifications": [
+    {
+      "category": "资质",
+      "requirement": "市政公用工程施工总承包贰级及以上资质",
+      "source_quote": "投标人须具备市政公用工程施工总承包贰级及以上资质。",
+      "thresholds": []
+    },
+    {
+      "category": "安全生产许可",
+      "requirement": "具备有效的安全生产许可证",
+      "source_quote": "投标人须具备有效的安全生产许可证。",
+      "thresholds": []
+    },
+    {
+      "category": "项目经理",
+      "requirement": "注册建造师资格与安全生产考核合格证书",
+      "source_quote": "项目经理须具备市政公用工程专业贰级及以上注册建造师资格，并具有安全生产考核合格证书（B 证）。",
+      "thresholds": []
+    }
+  ],
+  "bid_format_items": [
+    {
+      "title": "投标书",
+      "content": ""
+    },
+    {
+      "title": "授权委托书"
+    },
+    {
+      "title": "开标一览表"
+    },
+    {
+      "title": "投标分项报价表"
+    }
+  ],
+  "contract_highlights": [],
+  "technical_requirements": [],
+  "service_requirements": [],
+  "extraction_meta": {
+    "prompt_version": "v5",
+    "parser": "local",
+    "calls": 4,
+    "json_mode_used": true,
+    "ungrounded_fields": [],
+    "warnings": []
+  }
+}

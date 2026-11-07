@@ -1,0 +1,7 @@
+{
+  "doc_id": "golden03serv00001",
+  "doc_type": "tender_file",
+  "parser": "local",
+  "source_name": "golden_03_service.pdf",
+  "scenario": "服务培训-容错：代码围栏 JSON、空响应重试、basic 缺字段、未溯源资格"
+}

@@ -1,0 +1,7 @@
+{
+  "doc_id": "golden02goods0001",
+  "doc_type": "tender_file",
+  "parser": "local",
+  "source_name": "golden_02_goods.pdf",
+  "scenario": "货物采购-脏数据：子对象 basic、字符串分值、null/非法条目、未溯源字段"
+}

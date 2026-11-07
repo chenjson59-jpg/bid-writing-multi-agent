@@ -1,0 +1,30 @@
+{
+  "第一章 投标邀请": [
+    {
+      "content": "{\n  \"basic\": {\n    \"project_name\": \"临江县第三水厂扩建工程施工\",\n    \"tender_no\": \"LJ-2026-SG-018\",\n    \"budget_amount\": \"项目预算金额：3200 万元\",\n    \"bid_deadline\": \"2026 年 11 月 20 日 09 时 30 分\",\n    \"bid_open_place\": \"临江县公共资源交易中心第二开标室\"\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第二章 评标办法": [
+    {
+      "content": "{\n  \"evaluation\": {\n    \"factors\": [\n      {\n        \"category\": \"报价\",\n        \"name\": \"投标报价\",\n        \"score\": 40,\n        \"source_quote\": \"投标报价以评标基准价为基准，每高 1% 扣 2 分，每低 1% 扣 1 分。\"\n      },\n      {\n        \"category\": \"技术\",\n        \"name\": \"施工组织设计\",\n        \"score\": 25,\n        \"source_quote\": \"施工组织设计评审施工方案、进度计划、质量保证与安全文明施工措施。\"\n      },\n      {\n        \"category\": \"商务\",\n        \"name\": \"项目管理机构\",\n        \"score\": 15,\n        \"source_quote\": \"项目管理机构评审项目经理、技术负责人及主要管理人员的资格与业绩。\"\n      },\n      {\n        \"category\": \"商务\",\n        \"name\": \"类似项目业绩\",\n        \"score\": 15,\n        \"source_quote\": \"类似项目业绩评审近三年同类供水工程业绩数量与规模。\"\n      },\n      {\n        \"category\": \"商务\",\n        \"name\": \"财务状况\",\n        \"score\": 5,\n        \"source_quote\": \"财务状况评审近三年营业收入、资产负债率与净利润情况。\"\n      }\n    ],\n    \"preliminary_review\": [\n      \"形式评审：投标文件签字盖章齐全、格式符合要求\",\n      \"资格评审：营业执照、资质证书、安全生产许可证有效\",\n      \"响应性评审：工期、质量目标、投标有效期满足要求\"\n    ],\n    \"score_table\": [\n      {\n        \"factor\": \"投标报价\",\n        \"score\": \"40 分\",\n        \"comment\": \"基准价浮动评分\"\n      },\n      {\n        \"factor\": \"施工组织设计\",\n        \"score\": \"25 分\",\n        \"comment\": \"方案、进度、质量、安全\"\n      }\n    ]\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第三章 资格审查要求": [
+    {
+      "content": "{\n  \"qualification\": {\n    \"items\": [\n      {\n        \"category\": \"资质\",\n        \"requirement\": \"市政公用工程施工总承包贰级及以上资质\",\n        \"source_quote\": \"投标人须具备市政公用工程施工总承包贰级及以上资质。\",\n        \"thresholds\": []\n      },\n      {\n        \"category\": \"安全生产许可\",\n        \"requirement\": \"具备有效的安全生产许可证\",\n        \"source_quote\": \"投标人须具备有效的安全生产许可证。\",\n        \"thresholds\": []\n      },\n      {\n        \"category\": \"项目经理\",\n        \"requirement\": \"注册建造师资格与安全生产考核合格证书\",\n        \"source_quote\": \"项目经理须具备市政公用工程专业贰级及以上注册建造师资格，并具有安全生产考核合格证书（B 证）。\",\n        \"thresholds\": []\n      }\n    ]\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第四章 投标文件格式": [
+    {
+      "content": "{\n  \"bid_format\": {\n    \"items\": [\n      {\n        \"title\": \"投标书\"\n      }\n    ]\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ]
+}
