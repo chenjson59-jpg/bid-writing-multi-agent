@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from typing import Any
 
+from src.bid_writer.coverage import compute_evaluation_coverage
 from src.bid_writer.rules import check_section_rules
 from src.bid_writer.schema import (
     BidReport,
@@ -96,23 +97,14 @@ def build_report(
             }
         )
 
-    # 评分覆盖（8.3.4）：只精确名称匹配
-    evaluation_coverage = []
-    for factor in tender.evaluation_factors:
-        name = factor.get("name", "")
-        section_ids = [d.plan.id for d in drafts if name in d.plan.scoring_factors]
-        covered = bool(section_ids)
-        evaluation_coverage.append(
-            {
-                "name": name,
-                "score": factor.get("score"),
-                "category": factor.get("category"),
-                "covered": covered,
-                "section_ids": section_ids,
-            }
-        )
-        if not covered and factor.get("score") is not None:
-            warnings.append(f"评分因素「{name}」未覆盖")
+    # 评分覆盖（8.3.4，T-012 三层覆盖）：计划/正文/证据，纯确定性计算
+    evaluation_coverage, coverage_summary = compute_evaluation_coverage(
+        tender, drafts, doc_id=doc_id
+    )
+    for item in evaluation_coverage:
+        # 未覆盖警告仍以计划层为准，保持既有语义
+        if not item["plan_covered"] and item.get("score") is not None:
+            warnings.append(f"评分因素「{item['name']}」未覆盖")
 
     # 占位符去重排序（8.4.1）
     placeholders: list[str] = []
@@ -150,4 +142,5 @@ def build_report(
         warnings=warnings,
         rule_checks=rule_checks,
         rule_error_count=rule_error_count,
+        coverage_summary=coverage_summary,
     )

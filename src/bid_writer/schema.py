@@ -304,6 +304,8 @@ class BidReport:
     # 确定性规则检查（T-013）：每章节一条结果与错误总数，与 LLM 评审分开输出
     rule_checks: list[dict[str, Any]] = field(default_factory=list)
     rule_error_count: int = 0
+    # 三层覆盖漏斗（T-012）：plan/body/evidence 各自的 total/covered/gaps
+    coverage_summary: dict[str, Any] = field(default_factory=dict)
     # 补写产物所基于的原产物 bid_id（P1-1），正常生成为空
     supplement_of: str = ""
     # 生成参数（P1-2）：章节级重写时按原参数执行
@@ -342,6 +344,8 @@ class BidReport:
             "format_items_covered": format_covered,
             "evaluation_factors_total": eval_total,
             "evaluation_factors_covered": eval_covered,
+            "body_factors_covered": self.coverage_summary.get("body", {}).get("covered", 0),
+            "evidence_factors_covered": self.coverage_summary.get("evidence", {}).get("covered", 0),
             "uncovered_factors": uncovered,
             "missing_profile_fields": self.missing_profile_fields,
             "sections": self.sections,

@@ -72,6 +72,9 @@ export interface BidSummary {
   format_items_covered: number
   evaluation_factors_total: number
   evaluation_factors_covered: number
+  // T-012 三层覆盖计数（计划层计数仍为 evaluation_factors_covered），旧产物缺省
+  body_factors_covered?: number
+  evidence_factors_covered?: number
   uncovered_factors: string[]
   missing_profile_fields: string[]
   sections: SectionResult[]
