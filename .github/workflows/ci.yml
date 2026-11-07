@@ -20,10 +20,13 @@ jobs:
         run: uv sync --frozen
 
       - name: 代码检查
-        run: uv run ruff check api src tests scripts
+        run: uv run ruff check api src tests scripts eval
 
       - name: 离线测试
         run: uv run pytest -q
+
+      - name: Golden Data 离线评测（T-020）
+        run: uv run python -m eval.harness.runner
 
   frontend:
     runs-on: ubuntu-latest

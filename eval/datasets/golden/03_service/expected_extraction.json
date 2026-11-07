@@ -1,0 +1,80 @@
+{
+  "doc_id": "golden03serv00001",
+  "doc_type": "tender_file",
+  "project_name": "市属国企数字化转型培训服务采购项目",
+  "tender_no": "PX-2026-FW-009",
+  "budget_amount": "",
+  "bid_deadline": "",
+  "bid_open_place": "",
+  "evaluation_factors": [
+    {
+      "category": "培训方案",
+      "name": "培训方案",
+      "score": 40.0,
+      "source_quote": "评审因素包括培训方案 40 分、师资配置 30 分、服务经验 20 分、报价 10 分。"
+    },
+    {
+      "category": "师资配置",
+      "name": "师资配置",
+      "score": 30.0,
+      "source_quote": "师资配置 30 分"
+    },
+    {
+      "category": "服务方案",
+      "name": "服务经验",
+      "score": 20.0,
+      "source_quote": "服务经验 20 分"
+    },
+    {
+      "category": "报价",
+      "name": "报价",
+      "score": 10.0,
+      "source_quote": "报价 10 分。"
+    }
+  ],
+  "preliminary_review": [],
+  "score_table": [],
+  "qualifications": [
+    {
+      "category": "资质",
+      "requirement": "具有有效的企业法人营业执照",
+      "source_quote": "供应商须具有有效的企业法人营业执照。",
+      "thresholds": []
+    },
+    {
+      "category": "人员",
+      "requirement": "项目负责人培训咨询经验",
+      "source_quote": "项目负责人须具有 PMP 证书及 10 年以上同行业经验。",
+      "thresholds": [
+        "PMP 证书",
+        "10 年以上经验"
+      ]
+    }
+  ],
+  "bid_format_items": [
+    {
+      "title": "投标书",
+      "content": ""
+    },
+    {
+      "title": "授权委托书"
+    }
+  ],
+  "contract_highlights": [],
+  "technical_requirements": [],
+  "service_requirements": [
+    "数字化战略、数据治理与人工智能应用三个模块的课程体系",
+    "培训计划覆盖 12 个专题、共计 48 课时",
+    "实施方案包含师资配置与课程评估机制"
+  ],
+  "extraction_meta": {
+    "prompt_version": "v5",
+    "parser": "local",
+    "calls": 4,
+    "json_mode_used": true,
+    "ungrounded_fields": [
+      "资格条件[1]"
+    ],
+    "warnings": []
+  }
+}

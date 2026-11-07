@@ -1,0 +1,64 @@
+{
+  "doc_id": "golden02goods0001",
+  "doc_type": "tender_file",
+  "project_name": "校园智慧教室设备采购项目",
+  "tender_no": "EDU-2026-HW-027",
+  "budget_amount": "999万元",
+  "bid_deadline": "2026 年 12 月 05 日 14 时 00 分",
+  "bid_open_place": "市教育装备中心三楼会议室",
+  "evaluation_factors": [
+    {
+      "category": "报价",
+      "name": "货物价格分",
+      "score": 30.0,
+      "source_quote": "货物价格分 30 分，技术参数响应情况 35 分，售后服务方案 20 分，企业综合实力 15 分。"
+    },
+    {
+      "category": "技术",
+      "name": "技术参数响应情况",
+      "score": 35.0,
+      "source_quote": "技术参数评审依据交互智能平板的显示尺寸、亮度与触控响应速度。"
+    },
+    {
+      "category": "服务方案",
+      "name": "售后服务方案",
+      "score": 20.0,
+      "source_quote": "售后服务方案 20 分"
+    },
+    {
+      "category": "商务",
+      "name": "企业综合实力",
+      "score": 15.0,
+      "source_quote": "企业综合实力依据 ISO27001 认证与海外分支机构数量评分。"
+    }
+  ],
+  "preliminary_review": [],
+  "score_table": [],
+  "qualifications": [],
+  "bid_format_items": [
+    {
+      "title": "中小企业声明函（货物）格式",
+      "content": ""
+    },
+    {
+      "title": "残疾人福利性单位声明函格式"
+    }
+  ],
+  "contract_highlights": [],
+  "technical_requirements": [
+    "86 英寸交互智能平板，显示亮度不低于 350cd/㎡",
+    "触控响应速度不高于 8ms"
+  ],
+  "service_requirements": [],
+  "extraction_meta": {
+    "prompt_version": "v5",
+    "parser": "local",
+    "calls": 3,
+    "json_mode_used": true,
+    "ungrounded_fields": [
+      "预算金额",
+      "评分因素[3]"
+    ],
+    "warnings": []
+  }
+}
