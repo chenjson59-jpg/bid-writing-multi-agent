@@ -525,12 +525,23 @@ upload/
 | `total_words` | 总字数 |
 | `sections` | 各章节标题、策略、得分、修订次数、字数 |
 | `format_coverage` | 投标文件格式覆盖情况 |
-| `evaluation_coverage` | 评分因素覆盖情况 |
+| `evaluation_coverage` | 评分因素三层覆盖明细（T-012），见下表 |
+| `coverage_summary` | 三层覆盖漏斗汇总（T-012），`plan`/`body`/`evidence` 各含 `{total, covered, gaps}` |
 | `placeholders` | 去重后的占位符列表 |
 | `missing_profile_fields` | 缺失的投标人资料字段（中文名称） |
-| `warnings` | 编写警告（未覆盖评分因素等，不含规则检查结果） |
+| `warnings` | 编写警告（计划层未覆盖评分因素等，不含规则检查结果） |
 | `rule_checks` | 每章节一条确定性规则检查结果（T-013），字段同 `sections[*].rule_check` |
 | `rule_error_count` | 规则检查未通过的章节数；`summary` 同步输出该字段 |
+
+`evaluation_coverage[*]` 三层覆盖字段（确定性、零模型调用）：
+
+| 字段 | 说明 |
+|---|---|
+| `covered` / `plan_covered` | 计划覆盖：因素名精确命中章节计划（两字段等价，前者为兼容别名） |
+| `body_covered` | 正文覆盖：非占位章节剔除占位符后正文实际出现因素名 |
+| `evidence_covered` | 证据覆盖：正文命中章节同时具备同 doc_id 检索片段与合法 `[n]` 引用 |
+| `section_ids` / `body_section_ids` / `evidence_section_ids` | 各层命中的章节 id |
+| `gaps` | 未达成的层级列表，取值 `plan`/`body`/`evidence`；全通过为 `[]` |
 
 `sections[*].rule_check` 结构（确定性、零模型调用，与 LLM 语义评审分开）：
 

@@ -372,3 +372,98 @@ def test_build_report_recomputes_rules_for_restored_drafts():
 
     assert report.rule_checks[0]["passed"] is False
     assert report.rule_error_count == 1
+
+
+# ---- T-012 三层覆盖集成 ----
+
+
+def test_build_report_three_layer_coverage():
+    tender = make_tender()
+    doc_id = tender.doc_id
+    chunk = {"id": f"{doc_id}:0000", "text": "片段", "metadata": {"doc_id": doc_id}}
+    drafts = [
+        # 证据覆盖：正文含因素名 + 合法引用 + 同 doc_id 片段
+        SectionDraft(
+            SectionPlan(id="s1", title="施工组织设计", order=1, strategy="generate",
+                        scoring_factors=["施工组织设计"]),
+            "施工组织设计依据[1]展开。",
+            ReviewResult(score=80), 80, 80, 0, retrieved=[chunk],
+        ),
+        # 仅正文覆盖：有因素名无引用
+        SectionDraft(
+            SectionPlan(id="s2", title="企业业绩", order=2, strategy="generate",
+                        scoring_factors=["企业业绩"]),
+            "企业业绩情况说明。",
+            ReviewResult(score=80), 80, 80, 0, retrieved=[],
+        ),
+        # 仅计划覆盖：占位章节
+        SectionDraft(
+            SectionPlan(id="s3", title="投标报价", order=3, strategy="placeholder",
+                        scoring_factors=["投标报价"]),
+            "【待填写：投标报价】",
+            ReviewResult(score=100), 100, 100, 0, retrieved=[],
+        ),
+    ]
+    report = assembly.build_report(
+        doc_id, tender.project_name, "公司", drafts,
+        tender, BidderProfile(company_name="公司"), datetime(2026, 1, 1),
+    )
+
+    by_name = {e["name"]: e for e in report.evaluation_coverage}
+    assert by_name["施工组织设计"]["evidence_covered"] is True
+    assert by_name["施工组织设计"]["gaps"] == []
+    assert by_name["企业业绩"]["plan_covered"] is True
+    assert by_name["企业业绩"]["body_covered"] is True
+    assert by_name["企业业绩"]["evidence_covered"] is False
+    assert by_name["投标报价"]["plan_covered"] is True
+    assert by_name["投标报价"]["body_covered"] is False
+    assert by_name["其他因素"]["plan_covered"] is False
+    # 兼容字段 covered 仍表示计划层
+    assert all(e["covered"] == e["plan_covered"] for e in report.evaluation_coverage)
+
+    summary = report.coverage_summary
+    assert summary["plan"] == {"total": 4, "covered": 3, "gaps": ["其他因素"]}
+    assert summary["body"]["covered"] == 2
+    assert summary["evidence"]["covered"] == 1
+    # 漏斗单调
+    assert summary["plan"]["covered"] >= summary["body"]["covered"] >= summary["evidence"]["covered"]
+
+    bid_summary = report.summary()
+    assert bid_summary["evaluation_factors_covered"] == 3
+    assert bid_summary["body_factors_covered"] == 2
+    assert bid_summary["evidence_factors_covered"] == 1
+    # 警告仍以计划层为准：只有完全未分配的因素产生警告
+    assert any("其他因素" in w for w in report.warnings)
+    assert not any("投标报价" in w for w in report.warnings)
+
+
+def test_bid_report_loading_old_data_without_coverage_fields():
+    # 旧 report.json 没有 coverage_summary / rule_checks 等新字段，依赖 dataclass 默认值加载
+    from src.bid_writer.schema import BidReport
+
+    old_data = {
+        "doc_id": "doc",
+        "project_name": "项目",
+        "bidder": "公司",
+        "generated_at": "2026-01-01T00:00:00",
+        "total_sections": 1,
+        "total_words": 10,
+        "sections": [],
+        "format_coverage": [],
+        "evaluation_coverage": [
+            {"name": "技术方案", "score": 10, "category": "技术",
+             "covered": True, "section_ids": ["s1"]}
+        ],
+        "placeholders": [],
+        "missing_profile_fields": [],
+        "warnings": [],
+    }
+    report = BidReport(**old_data)
+
+    assert report.coverage_summary == {}
+    assert report.rule_checks == []
+    assert report.rule_error_count == 0
+    summary = report.summary()
+    assert summary["body_factors_covered"] == 0
+    assert summary["evidence_factors_covered"] == 0
+    assert summary["evaluation_factors_covered"] == 1

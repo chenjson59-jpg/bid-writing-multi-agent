@@ -1454,22 +1454,25 @@ item_key in plan_key or plan_key in item_key
 
 命中 → 记录 `section_id`、`section_title`、`strategy`；未命中 → `missing`。
 
-##### 8.3.4 评分覆盖
+##### 8.3.4 三层覆盖（T-012）
 
-对每个评分因素：
+覆盖计算由 `src/bid_writer/coverage.py` 的纯函数完成，零模型调用。对每个评分因素
+依次判定三个层级，构成严格漏斗 `evidence ⇒ body ⇒ plan`：
 
-```text
-section_ids = [
-    draft.plan.id
-    for draft in drafts
-    if factor.name in draft.plan.scoring_factors
-]
-covered = bool(section_ids)
-```
+1. **计划覆盖 `plan_covered`**：因素名精确出现在某章节计划的 `scoring_factors`
+   中（只精确匹配，不做模糊匹配），命中章节记入 `section_ids`；兼容字段 `covered`
+   等同本层，未覆盖且分值非空仍生成警告。
+2. **正文覆盖 `body_covered`**：在计划覆盖前提下，至少一个候选章节满足
+   `strategy != placeholder`，且把正文占位符 `【待填写…】` 剔除后，去空白的因素名
+   是去空白正文的子串（`normalize_title`）；命中章节记入 `body_section_ids`。
+   这是保守的关键词证据，语义充分性仍由 LLM Reviewer 评分承担。
+3. **证据覆盖 `evidence_covered`**：在正文覆盖前提下，至少一个正文命中章节同时
+   具备同 `doc_id` 的检索片段（metadata 优先、id 前缀兜底）与合法范围内的引用
+   标记 `[n]`（`1 <= n <= len(retrieved)`，复用 8.2.5 的规则工具）；命中章节记入
+   `evidence_section_ids`。只检索未引用属于「有素材未使用」，不计证据覆盖。
 
-- 只按精确名称匹配；
-- 没有模糊匹配；
-- 未覆盖且分值非空 → 生成警告。
+每个因素还输出 `gaps`：未达计划为 `["plan","body","evidence"]`，计划达标但正文
+未响应为 `["body","evidence"]`，正文达标但缺证据为 `["evidence"]`，全通过为 `[]`。
 
 ##### 8.3.5 报告字段
 
@@ -1478,16 +1481,23 @@ BidReport:
   doc_id, project_name, bidder, generated_at,
   total_sections, total_words,
   sections[], format_coverage[], evaluation_coverage[],
-  placeholders[], missing_profile_fields[], warnings[]
+  placeholders[], missing_profile_fields[], warnings[],
+  rule_checks[], rule_error_count, coverage_summary
 ```
+
+`evaluation_coverage[*]` 在原 `name/score/category/covered/section_ids` 上扩展
+`plan_covered/body_covered/evidence_covered/body_section_ids/evidence_section_ids/gaps`；
+`coverage_summary` 为三层各自的 `{total, covered, gaps}` 漏斗汇总。旧 `report.json`
+缺少新字段时按 dataclass 默认值加载，`rebuild_artifact` 重算后补齐。
 
 ##### 8.3.6 摘要统计
 
 `bid_summary` 基于报告计算：
 
 - 格式覆盖数：`section_id` 为真；
-- 评分覆盖数：`covered` 为真；
-- 未覆盖评分因素：`covered=false` 且 `score != null`；
+- 计划层评分覆盖数：`plan_covered` 为真（即旧 `evaluation_factors_covered`，语义不变）；
+- 正文/证据层覆盖数：`body_factors_covered`、`evidence_factors_covered`（T-012 新增）；
+- 未覆盖评分因素：计划层未覆盖且 `score != null`；
 - 占位符数量：去重后的占位符数；
 - Word 路径：仅当文件存在时返回。
 
