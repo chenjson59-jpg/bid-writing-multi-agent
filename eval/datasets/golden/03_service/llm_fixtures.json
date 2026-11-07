@@ -1,0 +1,28 @@
+{
+  "第一章 服务需求": [
+    {
+      "content": "```json\n{\n  \"basic\": {\n    \"project_name\": \"市属国企数字化转型培训服务采购项目\",\n    \"tender_no\": \"PX-2026-FW-009\"\n  },\n  \"service_spec\": {\n    \"requirements\": [\n      \"数字化战略、数据治理与人工智能应用三个模块的课程体系\",\n      \"培训计划覆盖 12 个专题、共计 48 课时\",\n      \"实施方案包含师资配置与课程评估机制\"\n    ]\n  }\n}\n```",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第二章 评审与资格要求": [
+    {
+      "content": "{}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    },
+    {
+      "content": "{\n  \"evaluation\": {\n    \"factors\": [\n      {\n        \"category\": \"培训方案\",\n        \"name\": \"培训方案\",\n        \"score\": 40,\n        \"source_quote\": \"评审因素包括培训方案 40 分、师资配置 30 分、服务经验 20 分、报价 10 分。\"\n      },\n      {\n        \"category\": \"师资配置\",\n        \"name\": \"师资配置\",\n        \"score\": 30,\n        \"source_quote\": \"师资配置 30 分\"\n      },\n      {\n        \"category\": \"服务方案\",\n        \"name\": \"服务经验\",\n        \"score\": 20,\n        \"source_quote\": \"服务经验 20 分\"\n      },\n      {\n        \"category\": \"报价\",\n        \"name\": \"报价\",\n        \"score\": 10,\n        \"source_quote\": \"报价 10 分。\"\n      }\n    ]\n  },\n  \"qualification\": {\n    \"items\": [\n      {\n        \"category\": \"资质\",\n        \"requirement\": \"具有有效的企业法人营业执照\",\n        \"source_quote\": \"供应商须具有有效的企业法人营业执照。\",\n        \"thresholds\": []\n      },\n      {\n        \"category\": \"人员\",\n        \"requirement\": \"项目负责人培训咨询经验\",\n        \"source_quote\": \"项目负责人须具有 PMP 证书及 10 年以上同行业经验。\",\n        \"thresholds\": [\n          \"PMP 证书\",\n          \"10 年以上经验\"\n        ]\n      }\n    ]\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第三章 应答文件与投标文件格式": [
+    {
+      "content": "{\n  \"bid_format\": {\n    \"items\": [\n      {\n        \"title\": \"投标书\"\n      }\n    ]\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ]
+}

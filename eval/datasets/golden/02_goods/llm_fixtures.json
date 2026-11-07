@@ -1,0 +1,23 @@
+{
+  "第一章 采购公告": [
+    {
+      "content": "{\n  \"project\": {\n    \"project_name\": \"校园智慧教室设备采购项目\",\n    \"tender_no\": \"EDU-2026-HW-027\",\n    \"budget_amount\": \"项目预算金额：999 万元\",\n    \"bid_deadline\": \"2026 年 12 月 05 日 14 时 00 分\",\n    \"bid_open_place\": \"市教育装备中心三楼会议室\"\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第二章 评审因素与标准": [
+    {
+      "content": "{\n  \"evaluation\": {\n    \"factors\": [\n      {\n        \"category\": \"报价评分\",\n        \"name\": \"货物价格分\",\n        \"score\": \"30分\",\n        \"source_quote\": \"货物价格分 30 分，技术参数响应情况 35 分，售后服务方案 20 分，企业综合实力 15 分。\"\n      },\n      {\n        \"category\": \"技术评分\",\n        \"name\": \"技术参数响应情况\",\n        \"score\": \"35\",\n        \"source_quote\": \"技术参数评审依据交互智能平板的显示尺寸、亮度与触控响应速度。\"\n      },\n      {\n        \"category\": \"服务方案评分\",\n        \"name\": \"售后服务方案\",\n        \"score\": 20,\n        \"source_quote\": \"售后服务方案 20 分\"\n      },\n      {\n        \"category\": \"商务评分\",\n        \"name\": \"企业综合实力\",\n        \"score\": 15,\n        \"source_quote\": \"企业综合实力依据 ISO27001 认证与海外分支机构数量评分。\"\n      },\n      {\n        \"category\": \"技术评分\",\n        \"name\": \"\",\n        \"score\": 9,\n        \"source_quote\": \"\"\n      },\n      \"not-a-dict\"\n    ],\n    \"preliminary_review\": null,\n    \"score_table\": []\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ],
+  "第三章 采购需求与投标文件格式": [
+    {
+      "content": "{\n  \"tech\": {\n    \"requirements\": [\n      \"86 英寸交互智能平板，显示亮度不低于 350cd/㎡\",\n      \"触控响应速度不高于 8ms\"\n    ]\n  },\n  \"bid_format\": {\n    \"items\": [\n      {\n        \"title\": \"中小企业声明函（货物）格式\"\n      }\n    ]\n  }\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true
+    }
+  ]
+}
