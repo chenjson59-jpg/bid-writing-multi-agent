@@ -104,6 +104,19 @@ _REVIEWER_USER = """章节标题：{title}
 请评审并输出 JSON。"""
 
 _REVISER_USER = """章节标题：{title}
+章节策略：{strategy}
+目标字数：约 {target_words} 字
+关联评分因素：{factors}
+写作要求：{requirements}
+
+项目与评分摘要：
+{tender_summary}
+
+投标人资料（字段标注了必填 / 建议 / 可选）：
+{profile}
+
+检索到的原文片段：
+{retrieved}
 
 当前正文：
 {draft}
@@ -113,7 +126,8 @@ _REVISER_USER = """章节标题：{title}
 - 问题：{issues}
 - 建议：{suggestions}
 
-请输出修订后的章节正文。"""
+请在保留章节计划、评分因素覆盖、有效引用编号与合规占位符的前提下，依据上述资料与
+原文片段修订正文；无检索结果时不得新增引用。只输出修订后的章节 Markdown 正文。"""
 
 
 def _join(items: list[Any], fallback: str = "（无）") -> str:
@@ -263,9 +277,29 @@ def build_reviewer_prompt(plan, draft: str) -> list[dict[str, str]]:
     ]
 
 
-def build_reviser_prompt(plan, draft: str, review) -> list[dict[str, str]]:
+def build_reviser_prompt(
+    plan,
+    draft: str,
+    review,
+    tender,
+    profile,
+    retrieved: list[dict[str, Any]],
+    *,
+    schema: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """修订提示词：上下文与 Writer 对齐（T-014，AGENTS.md 5.4）。"""
+    chunks = "\n\n".join(
+        f"[{i + 1}] {c.get('text', '')}" for i, c in enumerate(retrieved)
+    ) or "（无检索结果）"
     user = _REVISER_USER.format(
         title=plan.title,
+        strategy=plan.strategy,
+        target_words=plan.target_words,
+        factors=_join(plan.scoring_factors),
+        requirements=plan.requirements or "按评分因素完整响应",
+        tender_summary=_tender_summary(tender),
+        profile=_profile_text(profile, schema),
+        retrieved=chunks,
         draft=draft,
         score=review.score,
         issues=_join(review.issues),

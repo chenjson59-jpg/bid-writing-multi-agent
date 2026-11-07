@@ -539,7 +539,8 @@ Python 依赖全部安装在项目 `.venv` 中；`uv run` 会自动使用该环�
 - `run_write_pipeline` 先串行完成各章检索（共享检索器加锁），再按章节计划扇出 `section_agent`；
 - `ThreadPoolExecutor` + `as_completed` 收集结果，并发度取 `BID_WRITER_MAX_CONCURRENCY`；
 - 结果按 `plan.order` 重排，保证章节顺序确定；
-- 每个章节内部执行「检索 → 写作 → 评审 → 修订」，修订次数有上限；
+- 每个章节内部执行「检索 → 写作 → 评审 → 修订」，修订次数有上限（0–3），
+  Reviser 与 Writer 共享章节计划、评分因素、检索片段与投标人资料上下文（T-014）；
 - LLM 语义评审之外，`rules.py` 做零模型调用的确定性规则检查（引用有效性、
   doc_id 归属、报价禁令、占位符事实），结果独立于评分写入报告（T-013）；
 - 覆盖报告分计划/正文/证据三层漏斗（`coverage.py`，T-012），纯确定性计算，
