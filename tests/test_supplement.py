@@ -20,6 +20,8 @@ class _EmptyRetriever:
 
     def __init__(self, *_args, **_kwargs):
         pass
+    # T-017：与真实 ChromaRetriever 对齐的健康标志
+    degraded = False
 
     def search(self, _query, _limit=None):
         return []

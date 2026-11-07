@@ -9,6 +9,7 @@ import type {
   ExtractionQualification,
   ExtractionUpdateBody,
 } from '../types'
+import { ungroundedFields } from '../lib/bid_quality'
 import { Banner, Button, Field, Modal, Spinner } from '../ui'
 
 const INPUT =
@@ -35,6 +36,9 @@ export function ExtractionEditor({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // T-017：抽取阶段未溯源字段，类型异常时纯函数返回空数组
+  const ungrounded = detail ? ungroundedFields(detail.extraction_meta) : []
 
   useEffect(() => {
     let alive = true
@@ -168,6 +172,12 @@ export function ExtractionEditor({
               : '尚未人工核对：写作前请确认评分因素与格式条目，避免错误抽取直接影响覆盖统计。'}
           </Banner>
           {error && <Banner kind="error">{error}</Banner>}
+          {ungrounded.length > 0 && (
+            <Banner kind="warn">
+              以下字段未能在招标文件原文中核实（ungrounded_fields），请人工核对后再用于写作：
+              {ungrounded.join('、')}
+            </Banner>
+          )}
 
           <div>
             <p className="mb-2 text-sm font-semibold text-slate-200">基础字段</p>

@@ -235,6 +235,8 @@ def rebuild_artifact(
     report.updated_at = now.isoformat(timespec="seconds")
     report.missing_profile_fields = list(report_data.get("missing_profile_fields") or [])
     report.supplement_of = str(report_data.get("supplement_of") or "")
+    # T-017：重建不产生新检索器，降级标志从旧报告粘性保留，避免信号在编辑/重写后丢失
+    report.retrieval_degraded = bool(report_data.get("retrieval_degraded"))
     report.write_options = dict(report_data.get("write_options") or {})
     report.llm_usage = (
         dict(llm_usage) if llm_usage is not None else dict(report_data.get("llm_usage") or {})

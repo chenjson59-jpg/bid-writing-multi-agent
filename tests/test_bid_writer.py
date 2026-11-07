@@ -7,6 +7,7 @@ from src.bid_writer import agents, assembly
 from src.bid_writer.agents import plan_sections, section_agent
 from src.bid_writer.schema import (
     BidderProfile,
+    BidReport,
     ReviewResult,
     SectionDraft,
     SectionPlan,
@@ -251,6 +252,49 @@ def test_build_report_coverage_and_placeholders():
     assert "法定代表人" in report.missing_profile_fields
     assert "【待填写：法定代表人】" in report.placeholders
     assert any("投标报价" in w for w in report.warnings)
+
+
+# ---- T-017 检索降级标志 ----
+
+
+def _single_draft():
+    return [
+        SectionDraft(
+            SectionPlan(
+                id="s1", title="施工组织设计", order=1, strategy="generate",
+                scoring_factors=["施工组织设计"],
+            ),
+            "正文内容",
+            ReviewResult(score=80),
+            80,
+            80,
+            0,
+        )
+    ]
+
+
+def test_build_report_retrieval_degraded_flag():
+    tender = make_tender()
+    report = assembly.build_report(
+        tender.doc_id, tender.project_name, "公司", _single_draft(),
+        tender, BidderProfile(company_name="公司"), datetime(2026, 1, 1),
+        retrieval_degraded=True,
+    )
+    assert report.retrieval_degraded is True
+    assert report.summary()["retrieval_degraded"] is True
+
+
+def test_build_report_retrieval_degraded_defaults_false_and_legacy_load():
+    tender = make_tender()
+    report = assembly.build_report(
+        tender.doc_id, tender.project_name, "公司", _single_draft(),
+        tender, BidderProfile(company_name="公司"), datetime(2026, 1, 1),
+    )
+    assert report.retrieval_degraded is False
+    assert report.summary()["retrieval_degraded"] is False
+    # 旧产物 report.json 无该键时必须兼容加载
+    payload = {k: v for k, v in report.to_dict().items() if k != "retrieval_degraded"}
+    assert BidReport(**payload).retrieval_degraded is False
 
 
 # ---- T-013 确定性规则检查接入 ----

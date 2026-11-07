@@ -186,6 +186,7 @@ def run_supplement(bid_id: str, *, caller=None, options: dict | None = None):
         tender,
         profile,
         now,
+        retrieval_degraded=retriever is None or retriever.degraded,
     )
     report.supplement_of = bid_id
     report.warnings.append(

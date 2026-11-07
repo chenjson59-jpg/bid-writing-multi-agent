@@ -66,6 +66,7 @@ def build_report(
     profile,
     generated_at: datetime,
     schema: dict | None = None,
+    retrieval_degraded: bool = False,
 ) -> BidReport:
     """计算覆盖报告（8.3.2–8.3.5）。`drafts` 需已按 order 排序。schema 透传给 missing_fields。"""
     warnings: list[str] = []
@@ -143,4 +144,5 @@ def build_report(
         rule_checks=rule_checks,
         rule_error_count=rule_error_count,
         coverage_summary=coverage_summary,
+        retrieval_degraded=retrieval_degraded,
     )

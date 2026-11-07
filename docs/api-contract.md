@@ -223,6 +223,7 @@
 
 - 文档库可预览解析后的 Markdown；
 - 标书历史可查看覆盖摘要、章节得分、缺失资料与警告；
+- 结果页显式展示可信度信号（T-017）：检索降级红色提示、计划/正文/证据三层覆盖漏斗、确定性规则错误章节标记；抽取校正页展示未溯源字段 `ungrounded_fields`；
 - 可预览 `bid.md`，下载 `bid.md`、`bid.docx`、`report.json`；
 - 桌面模式下可直接打开 Word 文件或在文件管理器中定位产物；
 - 浏览器模式下隐藏桌面专属操作，仅保留预览与下载。
@@ -532,6 +533,7 @@ upload/
 | `warnings` | 编写警告（计划层未覆盖评分因素等，不含规则检查结果） |
 | `rule_checks` | 每章节一条确定性规则检查结果（T-013），字段同 `sections[*].rule_check` |
 | `rule_error_count` | 规则检查未通过的章节数；`summary` 同步输出该字段 |
+| `retrieval_degraded` | 检索降级标志（T-017）：集合缺失/Embedding 失败/查询异常时为 `true`，`summary` 同步输出；旧产物缺省为 `false` |
 
 `evaluation_coverage[*]` 三层覆盖字段（确定性、零模型调用）：
 

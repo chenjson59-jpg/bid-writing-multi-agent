@@ -2038,11 +2038,13 @@ plan_sections (L44)
 
 | 符号 | 位置 | 要点 |
 |---|---|---|
-| `__init__` | L19 | 共享查询器，`get_collection` 失败时 `self.collection=None` 降级；`doc_id` 作为 `where` 过滤 |
-| `search` | L37 | 用互斥锁 `self._lock` 串行化 `query`，失败返回空 |
+| `__init__` | L19 | 共享查询器，`get_collection` 失败时 `self.collection=None` 且 `degraded=True` 降级；`doc_id` 作为 `where` 过滤 |
+| `search` | L37 | 用互斥锁 `self._lock` 串行化 `query`；查询异常时置 `degraded=True` 并返回空列表，不向上抛 |
 | `_to_chunks` | L50 | 检索结果归一化为片段字典 |
 
 **核心约束**（A17）：多角色并行写作时若各自 `new PersistentClient` 会触发 Chroma 租户错误，所以一轮编写只建**一个**检索器，查询用锁串行。这是「并行写作、串行检索」的关键，对应 [`graph.py`](../src/bid_writer/graph.py) 中检索在扇出前完成。
+
+**降级显式标记**（T-017，AGENTS 5.3）：检索器持有 `degraded` 布尔标志，初始化失败或任一查询异常都会置位；`run_bid_writer` / 补写 / 重写链路把标志透传进 `BidReport.retrieval_degraded` 与 `summary`，前端结果页据此显示红色提示，避免把无原文依据的内容误判为可信生成。人工编辑重建报告时该标志从旧 `report.json` 粘性保留。
 
 ### 五、阶段③ 并行写作：`run_write_pipeline`
 
