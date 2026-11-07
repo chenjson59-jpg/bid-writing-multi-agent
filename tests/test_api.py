@@ -95,6 +95,88 @@ def test_parse_missing_file(client):
     assert resp.status_code == 422
 
 
+# ---- 流式落盘（T-018）----
+
+
+def _incoming_pdf_residue() -> list:
+    from api import routes
+
+    return list(routes._INCOMING.glob("*.pdf"))
+
+
+def test_parse_streams_multichunk_large_file(client, monkeypatch):
+    from api import routes
+
+    monkeypatch.setattr(tasks, "run_parse", lambda *a, **k: _FakeDoc())
+    # 超过 1 MiB 的流式读取块大小，强制 read 循环至少两轮
+    content = b"%PDF-1.4" + b"x" * (1024 * 1024 + 128)
+    resp = client.post(
+        "/api/parse", files={"file": ("big.pdf", content, "application/pdf")}
+    )
+    assert resp.status_code == 202
+    data = resp.json()
+    # 增量哈希必须与整包哈希逐字节一致
+    assert data["doc_id"] == hashlib.sha256(content).hexdigest()[:16]
+
+    dests = list(routes.FILES_DIR.glob("*.pdf"))
+    assert len(dests) == 1
+    assert dests[0].read_bytes() == content
+    assert _incoming_pdf_residue() == []
+
+
+def test_parse_oversize_mid_stream_cleans_tmp(client, monkeypatch):
+    from api import routes
+    from src.config import settings
+
+    monkeypatch.setattr(settings, "api_max_upload_mb", 1)
+    # 首块 1 MiB 不超限，第二块累计超限，覆盖中途中止路径
+    content = b"%PDF-1.4" + b"x" * (1024 * 1024 + 256)
+    resp = client.post(
+        "/api/parse", files={"file": ("big.pdf", content, "application/pdf")}
+    )
+    assert resp.status_code == 413
+    assert _incoming_pdf_residue() == []
+    assert list(routes.FILES_DIR.glob("*.pdf")) == []
+    # 超限时不得提交任务
+    assert client.get("/api/metrics").json()["jobs_total"] == 0
+
+
+def test_parse_bad_header_cleans_tmp(client):
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"not a pdf", "application/pdf")}
+    )
+    assert resp.status_code == 400
+    assert _incoming_pdf_residue() == []
+
+
+def test_parse_empty_cleans_tmp(client):
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"", "application/pdf")}
+    )
+    assert resp.status_code == 400
+    assert _incoming_pdf_residue() == []
+
+
+def test_parse_never_reads_whole_file_at_once(client, monkeypatch):
+    """回归守卫：上传处理禁止整文件 read，只允许固定块大小的定长 read。"""
+    from starlette.datastructures import UploadFile
+
+    orig_read = UploadFile.read
+
+    async def guarded_read(self, size: int = -1):
+        if size is None or size < 0:
+            raise AssertionError("上传处理禁止整文件 read，必须固定块大小流式读取")
+        return await orig_read(self, size)
+
+    monkeypatch.setattr(UploadFile, "read", guarded_read)
+    monkeypatch.setattr(tasks, "run_parse", lambda *a, **k: _FakeDoc())
+
+    resp = client.post(
+        "/api/parse", files={"file": ("a.pdf", b"%PDF-1.4", "application/pdf")}
+    )
+    assert resp.status_code == 202
+
+
 # ---- 提交与轮询 ----
 
 
