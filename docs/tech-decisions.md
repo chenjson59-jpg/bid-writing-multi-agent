@@ -428,7 +428,7 @@
 | 虚拟环境 | `.venv/` |
 | 包管理器 | uv 0.10.12 |
 | 依赖锁文件 | `uv.lock` |
-| 默认索引 | 清华 PyPI 镜像（`pyproject.toml` 中配置） |
+| 默认索引 | 官方 PyPI（仓库不锁定区域镜像；国内镜像走本机 `UV_DEFAULT_INDEX`/用户级 `uv.toml`，T-027） |
 
 Python 依赖全部安装在项目 `.venv` 中；`uv run` 会自动使用该环境，不需要手工激活。
 

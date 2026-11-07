@@ -53,6 +53,28 @@ cp .env.example .env      # 填入 DEEPSEEK(火山方舟) / EMBEDDING / MINERU �
 原因是 `.venv` 内的目录带了 Windows 只读属性（不是进程占用），执行
 `cmd /c "attrib -R -S -H /S /D .venv\*"` 后重新 `uv sync` 即可。
 
+#### PyPI 镜像（国内网络可选）
+
+仓库与 `uv.lock` 默认使用官方 PyPI：CI 运行在海外 runner，把区域镜像锁进仓库会导致
+间歇性下载失败（T-027 修复记录见 `docs/specs/2026-11-07-t027-pypi-index-neutrality.md`）。
+国内开发执行 `uv add`、`uv lock` 等重新解析操作时，可用本机级镜像加速，不要改仓库文件：
+
+```powershell
+# 方式一：当前会话临时生效
+$env:UV_DEFAULT_INDEX = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+```
+
+方式二是写入用户级配置 `%APPDATA%\uv\uv.toml`（对本机所有项目生效）：
+
+```toml
+[[index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+```
+
+`uv sync --frozen` 按 `uv.lock` 记录的制品 URL 与 sha256 哈希安装；镜像偏好请保持在
+本机环境，不要重新提交进 `pyproject.toml`。
+
 ## 用法
 
 所有命令从仓库根目录执行：
