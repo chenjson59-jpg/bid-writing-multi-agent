@@ -26,6 +26,8 @@ class ChromaRetriever:
         self._doc_id = doc_id
         self._lock = threading.Lock()
         self.collection = None
+        # T-017：检索降级必须显式标记（AGENTS 5.3），不能静默返回空列表
+        self.degraded = False
         try:
             c = client or get_client()
             self.collection = c.get_collection(
@@ -33,17 +35,22 @@ class ChromaRetriever:
             )
         except Exception:  # noqa: BLE001 - 集合不存在或嵌入不可用时检索降级为空列表
             self.collection = None
+            self.degraded = True
 
     def search(self, query: str, limit: int | None = None) -> list[dict[str, Any]]:
-        """按查询检索 Top-K 片段；失败返回空列表（A17.7.3.4）。"""
+        """按查询检索 Top-K 片段；失败返回空列表并标记降级（A17.7.3.4）。"""
         if self.collection is None:
             return []
         limit = limit or settings.bid_writer_top_k
         where = {"doc_id": self._doc_id} if self._doc_id else None
-        with self._lock:
-            result = self.collection.query(
-                query_texts=[query], n_results=limit, where=where
-            )
+        try:
+            with self._lock:
+                result = self.collection.query(
+                    query_texts=[query], n_results=limit, where=where
+                )
+        except Exception:  # noqa: BLE001 - Embedding/查询失败按降级处理，不阻断写作
+            self.degraded = True
+            return []
         return _to_chunks(result)
 
 

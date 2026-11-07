@@ -375,6 +375,7 @@ def run_bid_writer(
         doc_id, tender.project_name, profile_obj.company_name, drafts,
         tender, profile_obj, now,
         schema=schema,
+        retrieval_degraded=retriever.degraded,
     )
 
     output_dir = BIDS_DIR / f"{doc_id}-{now.strftime('%Y%m%d-%H%M%S')}"

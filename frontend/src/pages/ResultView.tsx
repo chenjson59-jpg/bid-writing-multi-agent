@@ -13,6 +13,11 @@ import {
 } from '../api'
 import { getDesktop } from '../desktop'
 import type { BidSummary, SectionDetail, SectionInfo } from '../types'
+import {
+  coverageLayers,
+  isRetrievalDegraded,
+  ruleErrorSections,
+} from '../lib/bid_quality'
 import { Badge, Banner, Button, Card, Modal, Spinner } from '../ui'
 
 const STRATEGY_LABEL: Record<string, string> = {
@@ -293,6 +298,12 @@ export function ResultView({
   const lockMap = new Map(sections.map((s) => [s.id, s.locked]))
   const lockedCount = sections.filter((s) => s.locked).length
 
+  // T-017：可信度信号统一由纯函数派生，逻辑测试见 tests/bid_quality.test.ts
+  const layers = coverageLayers(data)
+  const retrievalDegraded = isRetrievalDegraded(data)
+  const ruleIssues = ruleErrorSections(data)
+  const ruleIssueMap = new Map(ruleIssues.map((issue) => [issue.id, issue]))
+
   return (
     <div className="space-y-4">
       <Card>
@@ -313,6 +324,59 @@ export function ResultView({
           )}
         </div>
       </Card>
+
+      {retrievalDegraded && (
+        <Banner kind="error">
+          检索服务不可用或未建立索引：本次生成没有原文检索依据，引用与证据覆盖为空，
+          相关内容请逐条人工核对后再使用。
+        </Banner>
+      )}
+
+      <Card title="三层覆盖漏斗（计划 → 正文 → 证据）">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {layers.map((layer) => {
+            const atRisk = layer.total > 0 && layer.covered < layer.total
+            return (
+              <div
+                key={layer.key}
+                className="rounded-lg border border-slate-800 bg-slate-900 p-4"
+              >
+                <p className="text-xs text-slate-500">{layer.label}</p>
+                <p
+                  className={`mt-1 text-xl font-semibold ${
+                    atRisk ? 'text-amber-400' : 'text-slate-100'
+                  }`}
+                >
+                  {layer.covered}/{layer.total}
+                </p>
+              </div>
+            )
+          })}
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          计划覆盖：评分因素已分配章节；正文覆盖：非占位章节正文实际提及因素；
+          证据覆盖：同时具备同文档检索片段与合法引用。三层构成严格漏斗。
+        </p>
+        {data.uncovered_factors.length > 0 && (
+          <p className="mt-2 text-sm text-amber-400">
+            计划层缺口：{data.uncovered_factors.join('、')}
+          </p>
+        )}
+        {!retrievalDegraded &&
+          data.evaluation_factors_total > 0 &&
+          (data.evidence_factors_covered ?? 0) === 0 && (
+            <p className="mt-2 text-sm text-amber-400">
+              证据覆盖为 0：正文缺少有效原文引用，请重点核对。
+            </p>
+          )}
+      </Card>
+
+      {ruleIssues.length > 0 && (
+        <Banner kind="warn">
+          确定性规则检查发现 {ruleIssues.length} 个章节存在问题（引用越界、无检索引用、
+          报价禁令或占位符等），详见章节明细表的规则标记。
+        </Banner>
+      )}
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Metric label="章节 / 字数" value={`${data.total_sections} / ${data.total_words}`} />
@@ -442,7 +506,21 @@ export function ResultView({
                       <td className="py-2 pr-4">{s.score_after}</td>
                       <td className="py-2 pr-4">{s.word_count}</td>
                       <td className="py-2 pr-4">
-                        {locked ? <Badge tone="muted">已锁定</Badge> : <span className="text-slate-500">可重写</span>}
+                        <div className="flex flex-wrap items-center gap-1">
+                          {locked ? <Badge tone="muted">已锁定</Badge> : <span className="text-slate-500">可重写</span>}
+                          {ruleIssueMap.get(s.id) && (
+                            <span
+                              title={ruleIssueMap
+                                .get(s.id)!
+                                .errors.map((e) => `${e.code}：${e.message}`)
+                                .join('\n')}
+                            >
+                              <Badge tone="warn">
+                                规则 {ruleIssueMap.get(s.id)!.errors.length}
+                              </Badge>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2">
                         <div className="flex flex-wrap items-center gap-1">

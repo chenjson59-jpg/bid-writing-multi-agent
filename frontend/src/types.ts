@@ -75,6 +75,9 @@ export interface BidSummary {
   // T-012 三层覆盖计数（计划层计数仍为 evaluation_factors_covered），旧产物缺省
   body_factors_covered?: number
   evidence_factors_covered?: number
+  // T-013 确定性规则错误章节数；T-017 检索降级标志，旧产物缺省
+  rule_error_count?: number
+  retrieval_degraded?: boolean
   uncovered_factors: string[]
   missing_profile_fields: string[]
   sections: SectionResult[]

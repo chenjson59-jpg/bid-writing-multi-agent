@@ -306,6 +306,8 @@ class BidReport:
     rule_error_count: int = 0
     # 三层覆盖漏斗（T-012）：plan/body/evidence 各自的 total/covered/gaps
     coverage_summary: dict[str, Any] = field(default_factory=dict)
+    # 检索降级标志（T-017）：集合缺失/Embedding 失败/查询异常时为 True，旧产物缺省 False
+    retrieval_degraded: bool = False
     # 补写产物所基于的原产物 bid_id（P1-1），正常生成为空
     supplement_of: str = ""
     # 生成参数（P1-2）：章节级重写时按原参数执行
@@ -352,6 +354,7 @@ class BidReport:
             "warnings": self.warnings,
             "llm_usage": self.llm_usage,
             "rule_error_count": self.rule_error_count,
+            "retrieval_degraded": self.retrieval_degraded,
             "supplement_of": self.supplement_of,
             "output_dir": self.output_dir,
             "markdown_path": self.markdown_path,

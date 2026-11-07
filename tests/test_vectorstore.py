@@ -257,6 +257,28 @@ def test_retriever_none_collection_returns_empty():
     assert retriever.search("查询") == []
 
 
+def test_retriever_marks_degraded_when_collection_missing():
+    # T-017：集合不存在/Embedding 不可用必须显式标记，不能静默降级
+    retriever = ChromaRetriever("missing", client=FakeClient(raise_on_get=True))
+    assert retriever.degraded is True
+    assert retriever.search("查询") == []
+
+
+class _QueryRaisingCollection:
+    def query(self, **_kwargs):
+        raise RuntimeError("embedding unavailable")
+
+
+def test_retriever_marks_degraded_on_query_error_and_returns_empty():
+    # T-017：查询中途异常也要标记降级并返回空列表，不向上抛
+    retriever = ChromaRetriever(
+        "tender_document", client=FakeClient(_QueryRaisingCollection())
+    )
+    assert retriever.degraded is False
+    assert retriever.search("查询") == []
+    assert retriever.degraded is True
+
+
 def test_retriever_limits_results():
     col = FakeCollection()
     ingest_document(make_doc(sections=_sections()), collection=col)

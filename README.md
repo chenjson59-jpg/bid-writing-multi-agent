@@ -120,6 +120,12 @@ chroma_db/                   # 本地向量库
 - **三层覆盖漏斗**：评分覆盖区分计划覆盖（因素分配给章节）、正文覆盖（非占位章节
   正文实际响应）、证据覆盖（同 doc_id 片段 + 合法引用），三层结果与逐层缺口写入
   `report.json` 的 `evaluation_coverage` 与 `coverage_summary`，全部确定性可复算。
+- **检索降级显式标记**：集合缺失、Embedding 失败或查询异常时检索器置
+  `degraded=True` 并透传到 `report.json` 的 `retrieval_degraded`，前端结果页红色
+  提示「本次生成无原文依据」；抽取阶段原文核实失败的字段进入
+  `ungrounded_fields` 并在抽取校正页单独提示，不确定的内容不悄悄放过。
+- **可信度信号成体系展示**：结果页呈现计划/正文/证据三层覆盖漏斗、确定性规则错误
+  章节标记（hover 查看规则码与原因），与 LLM 语义评分分开。
 - **DeepSeek 是推理模型**：`deepseek-flash` 默认开启思考，思维链与正文共享
   `max_tokens`，预算耗尽时会返回空内容。抽取属于机械任务，`.env` 中
   `LLM_THINKING=disabled` 关闭思考后，评分表章节从 59s 降到约 15s；
@@ -217,7 +223,8 @@ curl -X POST "http://127.0.0.1:8001/api/bids" \
 
 轮询响应的 `kind="bid"`，`bid` 字段给出摘要：章节数与总字数、格式 / 评分覆盖数、
 未覆盖评分因素、占位符数量、缺失资料、各章节修订前后得分、规则错误数
-（`rule_error_count`）、正文/证据层覆盖数，以及 `bid.md`、`bid.docx`、
+（`rule_error_count`）、正文/证据层覆盖数、检索降级标志（`retrieval_degraded`），
+以及 `bid.md`、`bid.docx`、
 `report.json` 的路径。完整报告（含三层覆盖明细 `coverage_summary` 与每章节
 确定性规则检查 `rule_checks`）仍在 `report.json` 中。
 
