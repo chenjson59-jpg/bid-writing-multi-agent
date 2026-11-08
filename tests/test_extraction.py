@@ -3,9 +3,11 @@ import json
 
 import pytest
 
+from src.config import settings
 from src.errors import ExtractError
 from src.extraction.extractor import (
     MIN_BISECT_CHARS,
+    DeepSeekModelCaller,
     ExtractStats,
     Unit,
     _drop_misplaced_bid_format,
@@ -375,3 +377,39 @@ def test_extract_unit_retries_when_evaluation_empty():
 
     assert caller.calls == 2
     assert result[0]["evaluation"]["factors"]
+
+# ---- DeepSeekModelCaller 的 SDK 重试配置化（T-026，离线 monkeypatch，无真实网络）----
+
+
+def test_deepseek_caller_passes_configured_max_retries(monkeypatch):
+    import openai
+
+    captured: dict = {}
+
+    class _FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+
+    DeepSeekModelCaller()
+
+    assert captured["max_retries"] == settings.llm_max_retries
+    assert captured["timeout"] == settings.llm_timeout
+
+
+def test_deepseek_caller_respects_zero_retries(monkeypatch):
+    import openai
+
+    captured: dict = {}
+
+    class _FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+    monkeypatch.setattr(settings, "llm_max_retries", 0)
+
+    DeepSeekModelCaller()
+
+    assert captured["max_retries"] == 0

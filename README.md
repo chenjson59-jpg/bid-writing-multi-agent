@@ -154,6 +154,7 @@ chroma_db/                   # 本地向量库
   `max_tokens`，预算耗尽时会返回空内容。抽取属于机械任务，`.env` 中
   `LLM_THINKING=disabled` 关闭思考后，评分表章节从 59s 降到约 15s；
   同时 `LLM_MAX_TOKENS=32768` 给足输出预算。
+- **外部调用重试分层**：文本 LLM 与嵌入复用 OpenAI SDK 内置传输重试，次数分别由 `LLM_MAX_RETRIES`（默认 2）与 `EMBEDDING_MAX_RETRIES`（默认 10）配置；MinerU 四个 httpx 调用由 `RetryPolicy` 统一加指数退避重试（`MINERU_MAX_RETRIES` 默认 3），仅 429/5xx/超时/连接错误可重试，4xx 鉴权错误与 2xx 业务错误立即失败，`MINERU_MAX_RETRIES=0` 可关闭；重试耗尽后异常语义与 auto 本地降级链路不变。
 - **抽取按章节 map-reduce**：单章超长时递归细分，输出被截断时二分重试；
   每个单元的结果缓存在 `extraction_parts/`，中断后可续跑。
 

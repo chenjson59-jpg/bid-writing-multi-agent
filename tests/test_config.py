@@ -34,3 +34,11 @@ def test_env_example_keys_match_settings_fields():
 
     assert example_keys - fields == set(), f"摆设 env 键（Settings 无此字段）: {sorted(example_keys - fields)}"
     assert fields - example_keys == set(), f".env.example 缺漏字段: {sorted(fields - example_keys)}"
+
+
+def test_retry_related_settings_defaults():
+    """T-026：重试配置默认值锁定（LLM 默认 2 与 SDK 隐式默认等价；MinerU 默认 3 次重试）。"""
+    fields = Settings.model_fields
+    assert fields["llm_max_retries"].default == 2
+    assert fields["mineru_max_retries"].default == 3
+    assert fields["mineru_retry_backoff_base_seconds"].default == 1.0

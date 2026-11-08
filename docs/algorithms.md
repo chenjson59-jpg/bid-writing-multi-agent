@@ -703,9 +703,15 @@ flush(buffer)
 - 单元级容错在 `_extract_unit` 中实现，均为硬编码策略、不受配置驱动：
   - 结果按章节 focus 判定为空时，用相同入参原样重试一次，避免偶发空响应丢字段；
   - 截断错误且单元文本超过阈值时，按中点二分递归为上下两个单元分别抽取后合并，递归深度有上限；
-- 文本 LLM 调用层没有自动指数退避；唯一接入 SDK 重试的是嵌入层
-  （`EMBEDDING_MAX_RETRIES`，429 时由 OpenAI SDK 指数退避）；
-- 不存在 `LLM_MAX_RETRIES`、`MINERU_RETRY_BACKOFF` 配置项，历史文档中的退避公式为过时描述，已移除。
+- 文本 LLM 传输重试由 OpenAI SDK 内置实现，次数经 `LLM_MAX_RETRIES`（默认 2）
+  显式配置：429/5xx/408/409/超时/连接错误可重试，其余 4xx（含鉴权失败）不重试；
+  嵌入层对称使用 `EMBEDDING_MAX_RETRIES`（默认 10）；
+- 上述空结果重试与截断二分属于**内容语义级**容错，与 HTTP 传输重试互不替代；
+- MinerU 四个 httpx 调用统一经 `RetryPolicy` 做传输重试（T-026）：仅 429/5xx 与
+  `httpx.TransportError`（超时/连接错误）可重试，4xx 与 2xx 业务错误立即失败；
+  次数 `MINERU_MAX_RETRIES`（默认 3，0 关闭）、退避
+  `base*2^n + [0,base) 抖动`（`MINERU_RETRY_BACKOFF_BASE_SECONDS` 默认 1.0），
+  合法 `Retry-After`（≤120 秒）优先于公式。
 
 ##### 6.4.2 JSON 提取
 
@@ -1671,8 +1677,9 @@ def report(message):
 | 云端单文件最大页数 | 200 | 分片 |
 | 云端轮询间隔 | 5 秒 | 云端解析 |
 | 云端最大轮询次数 | 120 | 云端解析 |
-| 云端重试次数 | 2 | 云端解析 |
-| 云端退避系数 | 2.0 | 云端解析 |
+| 云端传输重试次数（不含首次） | 3（`MINERU_MAX_RETRIES`，0 关闭） | 云端解析 |
+| 云端退避基数（秒） | 1.0（`MINERU_RETRY_BACKOFF_BASE_SECONDS`） | 云端解析 |
+| 文本模型 SDK 重试次数 | 2（`LLM_MAX_RETRIES`） | 文本调用 |
 | ZIP 解压上限 | `max(500MB, zip_size × 20)` | 解压安全 |
 | 抽取单元长度 | 12000 字符 | 抽取 |
 | 截断二分最小长度 | 1200 字符 | 抽取 |
@@ -1924,8 +1931,9 @@ MINERU_MAX_PAGES = 200
 # 云端
 POLL_INTERVAL = 5
 MAX_POLLS = 120
-MAX_RETRIES = 2
-RETRY_BACKOFF = 2.0
+# 传输重试：delay_n = base * 2^n + random() * base，Retry-After 合法时优先
+MINERU_MAX_RETRIES = 3
+MINERU_RETRY_BACKOFF_BASE_SECONDS = 1.0
 ZIP_SIZE_LIMIT = max(500MB, zip_size * 20)
 
 # 抽取
