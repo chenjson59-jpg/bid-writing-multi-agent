@@ -1,0 +1,13 @@
+{
+  "施工组织设计": [
+    {"id": "golden01eng00001:0000", "text": "施工组织设计评审施工方案、进度计划、质量保证与安全文明施工措施。", "metadata": {"doc_id": "golden01eng00001"}},
+    {"id": "golden01eng00001:0001", "text": "投标人应编制详细的施工组织设计并落实安全文明施工责任。", "metadata": {"doc_id": "golden01eng00001"}}
+  ],
+  "项目管理机构": [
+    {"id": "golden01eng00001:0010", "text": "项目管理机构评审项目经理、技术负责人及主要管理人员的资格与业绩。", "metadata": {"doc_id": "golden01eng00001"}}
+  ],
+  "商务响应方案": [
+    {"id": "golden01eng00001:0020", "text": "类似项目业绩评审近三年同类供水工程业绩数量与规模。", "metadata": {"doc_id": "golden01eng00001"}},
+    {"id": "golden01eng00001:0021", "text": "财务状况评审近三年营业收入、资产负债率与净利润情况。", "metadata": {"doc_id": "golden01eng00001"}}
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "planner": [
+    {
+      "content": "{\n  \"sections\": [\n    {\"title\": \"施工组织设计\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"施工组织设计\"], \"requirements\": \"响应施工方案、进度、质量与安全措施\", \"retrieval_query\": \"施工组织设计\"},\n    {\"title\": \"项目管理机构\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"项目管理机构\"], \"requirements\": \"响应项目经理与管理人员资格业绩\", \"retrieval_query\": \"项目管理机构\"},\n    {\"title\": \"商务响应方案\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"类似项目业绩\", \"财务状况\"], \"requirements\": \"响应类似项目业绩与财务状况评审\", \"retrieval_query\": \"商务响应方案\"},\n    {\"title\": \"投标报价\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [\"投标报价\"], \"requirements\": \"\", \"retrieval_query\": \"投标报价\"},\n    {\"title\": \"投标书\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"投标书\"},\n    {\"title\": \"授权委托书\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"授权委托书\"},\n    {\"title\": \"开标一览表\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"开标一览表\"},\n    {\"title\": \"投标分项报价表\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"投标分项报价表\"}\n  ]\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300}
+    }
+  ],
+  "writer:施工组织设计": [
+    {
+      "content": "本章依据招标文件要求编制施工组织设计，覆盖施工方案、进度计划、质量保证与安全文明施工措施，所有论述均以原文片段为依据[1][2]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:施工组织设计": [
+    {
+      "content": "{\"score\": 70, \"covered_points\": [\"施工方案\"], \"issues\": [\"安全措施不够具体\"], \"suggestions\": [\"补充安全文明施工细则\"], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    },
+    {
+      "content": "{\"score\": 88, \"covered_points\": [\"施工方案\", \"进度计划\", \"质量保证\", \"安全措施\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ],
+  "reviser:施工组织设计": [
+    {
+      "content": "修订后的施工组织设计补充安全文明施工细则与应急处置流程，进度计划细化到周，质量保证责任落实到人，全部依据原文片段[1][2]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 180, "completion_tokens": 220, "total_tokens": 400}
+    }
+  ],
+  "writer:项目管理机构": [
+    {
+      "content": "项目管理机构配置项目经理、技术负责人及主要管理人员，资格与业绩均满足评审要求，岗位职责依据原文说明[1]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:项目管理机构": [
+    {
+      "content": "{\"score\": 82, \"covered_points\": [\"项目经理\", \"技术负责人\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ],
+  "writer:商务响应方案": [
+    {
+      "content": "商务响应方案逐项说明类似项目业绩与财务状况：近三年同类供水工程业绩规模满足门槛，营业收入、资产负债率与净利润等财务状况指标依据原文列示[1][2]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:商务响应方案": [
+    {
+      "content": "{\"score\": 85, \"covered_points\": [\"类似项目业绩\", \"财务状况\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ]
+}

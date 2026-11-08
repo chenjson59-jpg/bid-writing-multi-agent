@@ -25,8 +25,11 @@ jobs:
       - name: 离线测试
         run: uv run pytest -q
 
-      - name: Golden Data 离线评测（T-020）
+      - name: Golden Data 离线评测（T-020/T-021，抽取链）
         run: uv run python -m eval.harness.runner
+
+      - name: 编写阶段离线评测（T-022，A/B 冻结基线）
+        run: uv run python -m eval.harness.writing_runner
 
   frontend:
     runs-on: ubuntu-latest

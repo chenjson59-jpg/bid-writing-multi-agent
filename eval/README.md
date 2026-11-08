@@ -2,7 +2,8 @@
 
 与 `tests/` 单元测试隔离的**固定样本回归基线**：用手工构造的中文合成招标文件，驱动
 完整抽取链路（单元切分 → 提示词 → 归一化 → 合并 → 溯源核对），把实际产物与人工核定的
-期望产物做精确比较。T-021（抽取指标）、T-022（编写指标）将在本底座上叠加指标计算。
+期望产物做精确比较。T-021 在本底座上叠加抽取字段指标；T-022 在每份样本下新增 `writing/` 子目录，
+叠加编写阶段指标（见第 8 节）。
 
 ## 1. 合成与脱敏声明
 
@@ -21,15 +22,23 @@ eval/
 └── datasets/golden/<样本>/
     ├── meta.json                # doc_id、doc_type、parser、场景说明
     ├── tender.md                # 手工构造的招标 Markdown，一级标题「# 第X章 …」分章
-    ├── llm_fixtures.json        # 按章节标题键控的假模型返回队列
-    └── expected_extraction.json # 人工核定的期望 TenderDocument（稳定投影）
+    ├── llm_fixtures.json        # 按章节标题键控的假模型返回队列（抽取链）
+    ├── expected_extraction.json # 人工核定的期望 TenderDocument（稳定投影，编写链输入）
+    └── writing/                 # T-022 编写评测数据集（第 8 节）
+        ├── fixtures.json                # planner/writer/reviewer/reviser 脚本夹具
+        ├── retrieval.json               # 按章节标题键控的 Fake 检索片段
+        ├── profile.json                 # 投标人资料（可空）
+        ├── config.json                  # retrieval_degraded 等开关
+        └── expected_writing_metrics.json # 人工冻结的两臂期望指标
 ```
 
 ## 3. 运行方式
 
 ```powershell
-uv run python -m eval.harness.runner            # 全部样本，全匹配退出码 0，失配退出码 1
-uv run python -m eval.harness.runner --out x.json  # 额外写出 JSON 报告（结果文件不入库）
+uv run python -m eval.harness.runner             # 抽取链：全部样本，全匹配退出码 0，失配退出码 1
+uv run python -m eval.harness.runner --out x.json   # 额外写出 JSON 报告（结果文件不入库）
+uv run python -m eval.harness.writing_runner        # 编写链：三份样本两臂冻结基线（T-022）
+uv run python -m eval.harness.writing_runner --out y.json
 ```
 
 pytest 的 `testpaths=["tests"]` 不收集本目录；CI 在离线测试之外单独执行本 runner。
@@ -145,3 +154,93 @@ micro 先汇总计数再算比率（按字段量加权）；macro 对各样本�
    `extraction_meta.ungrounded_fields` 一致，无法虚构溯源状态；
 4. harness 对数据集只读，仓库不存在写期望文件的代码路径；期望文件变更仍须走
    第 5 节人工冻结流程。
+
+## 8. 编写阶段评测指标（T-022）
+
+编写评测复用同一份合成招标场景：以已冻结的 `expected_extraction.json` 构造
+`TenderDocument` 作为编写链输入（不重跑抽取），用脚本化假模型与 Fake 检索驱动生产函数
+`plan_sections → run_write_pipeline → build_report`。禁止调用
+`src/pipeline.py::run_bid_writer`（硬构造 Chroma 并写 `upload/`）；全程零网络、
+不碰 `chroma_db/`、不写 `upload/`，固定 `max_concurrency=1`。
+
+### 8.1 A/B 两臂口径
+
+代码中不存在 simple/advanced 模式，A/B 只是评测标签，差异仅有 `max_revisions`：
+
+| 臂 | 固定参数 | 含义 |
+|---|---|---|
+| `A_single_pass` | `max_revisions=0, min_score=75, top_k=6, target_words=1200, max_sections=0` | 单轮直写：writer + 一次 reviewer 打分，零修订 |
+| `B_review_revise` | 同上，仅 `max_revisions=1` | 最多一轮「评审—修订—复评」闭环 |
+
+两臂使用同一套夹具与 Fake 检索、各自独立的 caller 队列与计量器。
+
+### 8.2 夹具键控与失败语义
+
+- `fixtures.json` 键：`"planner"`（单元素队列）、`"writer:<标题>"`、
+  `"reviewer:<标题>"`、`"reviser:<标题>"`；角色由 system 消息固定字样识别，标题取
+  user 消息首行 `章节标题：...`；
+- `json_mode` 守卫：planner/reviewer 必须为 JSON 模式，writer/reviser 必须为文本模式，
+  不符抛 `TypeError`；夹具缺键/耗尽、角色或标题无法解析均显式抛错，不静默兜底；
+- planner 异常会被生产 `_planner_llm` 吞掉并回退确定性大纲，runner 在 `plan_sections`
+  后校验 planner 队列恰好消费 1 次，否则 `RuntimeError` 失败；
+- `retrieval.json` 按章节标题键控（planner 夹具统一把 `retrieval_query` 写成标题）；
+  键缺失抛 `KeyError`，键存在但值为 `[]` 表示检索无命中（用于 CITE_EMPTY 边界）；
+- 响应内的 `usage` 为合成 token，逐次可复现；`duration_ms` 是易变字段，投影时剔除，
+  不进信封与冻结基线。
+
+### 8.3 指标公式（全部复用生产口径，不另立规则）
+
+- **三层覆盖率**：直接取 `coverage_summary` 的 plan/body/evidence，
+  `rate = covered / total`，分母 0 为 `null`；
+- **引用有效率（章节级）**：含引用标记的章节为分母，无任何 `CITE_*` 错误的章节为分子；
+  `QUOTE_FORBIDDEN` 不计入引用失效；
+- **规则违规数**：`rule_error_sections`（出错章节数）、`rule_total_errors`（错误条数）、
+  `rule_errors_by_code`（四码固定键：`CITE_EMPTY/CITE_OUT_OF_RANGE/CITE_DOC_MISMATCH/
+  QUOTE_FORBIDDEN`，零命中为 0）；
+- **无依据信号 `ungrounded_signals`**：正文已覆盖但证据层未覆盖的评分因素（确定性代理
+  指标，**不是幻觉检测**，离线无语义 ground truth）；
+- **占位符 P/R/F1**：以冻结文件显式声明的 `expected_placeholders.present/absent` 为期望，
+  实际集合取生产 `BidReport.placeholders`；`TP=实际∩应出现`、`FN=应出现−实际`、
+  `FP=实际−应出现`（含禁现占位，不重复计数），`forbidden_hits=实际∩禁现`；
+- **成本**：`calls` 与三类 token 进基线；单价固定 0，不估算费用；
+- **A/B 差值**：仅对显式声明的整数字段（调用数、token、修订数、规则错误数、占位符
+  TP/FP/FN、三层 covered 数）做 B−A，比率字段并排比较不做差。
+
+### 8.4 样本边界意图与锁定基线
+
+| 样本 | 刻意构造的边界 |
+|---|---|
+| `01_engineering` | 干净基线：合法同 doc 引用、5 个 placeholder 章节零模型调用；B 臂施工组织设计初评 70 分触发一轮修订，复评 88 分 |
+| `02_goods` | 2 条片段却输出 `[3]`（越界）、片段混入外 doc_id（错 doc）、正文「让利 5%」（报价禁令） |
+| `03_service` | `retrieval_degraded=true`，培训方案无片段却输出 `[1]`（CITE_EMPTY）；师资配置 writer 故意产出禁现占位符 |
+
+锁定基线（合成 token，逐次可复现）：
+
+| 样本 | 臂 | 调用 | token | 修订 | 计划/正文/证据覆盖 | 引用有效率 | 规则错误 | 无依据信号 | 占位符 P/R/F1 |
+|---|---|---|---|---|---|---|---|---|---|
+| `01_engineering` | A | 7 | 1710 | 0 | 5/4/4 | 100.0% | 0 | 0 | 1.0000/1.0000/1.0000 |
+| `01_engineering` | B | 9 | 2230 | 1 | 5/4/4 | 100.0% | 0 | 0 | 1.0000/1.0000/1.0000 |
+| `02_goods` | A/B | 7 | 1710 | 0 | 4/3/2 | 66.7% | 3（越界/错 doc/报价禁令各 1） | 1（技术参数响应情况） | 1.0000/1.0000/1.0000 |
+| `03_service` | A/B | 7 | 1710 | 0 | 4/3/2 | 66.7% | 1（CITE_EMPTY） | 1（培训方案） | 0.7500/1.0000/0.8571 |
+
+聚合：A 臂 21 次调用 / 5130 token，B 臂 23 次 / 5650 token、总修订 1；macro 引用有效率
+77.78%，占位符 macro P/R/F1 = 0.9167/1.0000/0.9524；两样本 A/B 差值全 0，仅 01 的 B 臂
+增量为调用 +2、token +520、修订 +1。
+
+### 8.5 冻结流程与防篡改
+
+冻结遵循第 5 节「禁止盲快照」：先构造夹具与 Fake 检索并登记边界意图，再跑实际指标，
+逐项目人工核对章节清单、角色调用数（按队列消费推算）、token 合计、规则码、覆盖缺口、
+占位符集合与 A/B 差值，确认后才写入 `expected_writing_metrics.json`。本次冻结中夹具一次
+通过人工核对、未返工；冻结前修复了 runner 终端渲染的两个 dict 属性访问缺陷（不影响指标
+计算与比较）。
+
+防篡改措施：
+
+1. 指标纯函数与故障注入测试全部使用内联数据（`tests/test_eval_writing_metrics.py`），
+   改数据集期望影响不到这些断言；
+2. Golden 锁定测试固定调用数、token、规则码计数、占位符 TP/FP、A/B 差值与聚合绝对值，
+   期望文件被改时冻结比较或锁定数值至少一处变红；
+3. harness 对数据集只读，仓库不存在写期望文件的代码路径（冻结脚本只在系统临时目录运行）；
+4. 信封 `{"schema_version": 1, "kind": "writing_eval", ...}` 与抽取信封独立，同一结果
+   两次序列化字节一致，全匹配退出码 0，任一臂失配退出码 1。

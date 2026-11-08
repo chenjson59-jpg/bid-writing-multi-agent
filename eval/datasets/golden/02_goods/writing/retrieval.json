@@ -1,0 +1,13 @@
+{
+  "技术参数响应方案": [
+    {"id": "golden02goods0001:0000", "text": "智慧教室设备技术参数须逐项响应并提供原厂证明。", "metadata": {"doc_id": "golden02goods0001"}},
+    {"id": "golden99other0001:0000", "text": "其他文档遗留的设备参数片段。", "metadata": {"doc_id": "golden99other0001"}}
+  ],
+  "售后服务方案": [
+    {"id": "golden02goods0001:0010", "text": "供应商须提供不少于三年的免费质保与上门服务。", "metadata": {"doc_id": "golden02goods0001"}},
+    {"id": "golden02goods0001:0011", "text": "售后服务响应时间作为评分因素。", "metadata": {"doc_id": "golden02goods0001"}}
+  ],
+  "企业综合实力方案": [
+    {"id": "golden02goods0001:0020", "text": "企业综合实力评审研发能力、同类业绩与质量管理体系。", "metadata": {"doc_id": "golden02goods0001"}}
+  ]
+}
