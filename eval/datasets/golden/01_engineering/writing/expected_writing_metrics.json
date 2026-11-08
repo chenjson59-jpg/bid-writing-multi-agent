@@ -1,0 +1,411 @@
+{
+  "schema_version": 1,
+  "expected_placeholders": {
+    "present": [
+      "【待填写：开标一览表】",
+      "【待填写：投标书】",
+      "【待填写：投标分项报价表】",
+      "【待填写：投标报价】",
+      "【待填写：授权委托书】"
+    ],
+    "absent": [
+      "【待填写：主讲教师】"
+    ]
+  },
+  "arms": {
+    "A_single_pass": {
+      "avg_score_after": 79.0,
+      "citation": {
+        "citation_valid_rate": 1.0,
+        "invalid_sections": 0,
+        "sections_with_markers": 3,
+        "valid_sections": 3
+      },
+      "coverage": {
+        "body": {
+          "covered": 4,
+          "gaps": [
+            "投标报价"
+          ],
+          "rate": 0.8,
+          "total": 5
+        },
+        "evidence": {
+          "covered": 4,
+          "gaps": [
+            "投标报价"
+          ],
+          "rate": 0.8,
+          "total": 5
+        },
+        "plan": {
+          "covered": 5,
+          "gaps": [],
+          "rate": 1.0,
+          "total": 5
+        }
+      },
+      "llm_usage": {
+        "calls": 7,
+        "completion_tokens": 820,
+        "cost_estimated": false,
+        "estimated_cost": 0.0,
+        "models": [
+          "fake-model"
+        ],
+        "price_input_per_1k": 0.0,
+        "price_output_per_1k": 0.0,
+        "prompt_tokens": 890,
+        "total_tokens": 1710
+      },
+      "placeholders": {
+        "actual": [
+          "【待填写：开标一览表】",
+          "【待填写：投标书】",
+          "【待填写：投标分项报价表】",
+          "【待填写：投标报价】",
+          "【待填写：授权委托书】"
+        ],
+        "expected_absent": [
+          "【待填写：主讲教师】"
+        ],
+        "expected_present": [
+          "【待填写：开标一览表】",
+          "【待填写：投标书】",
+          "【待填写：投标分项报价表】",
+          "【待填写：投标报价】",
+          "【待填写：授权委托书】"
+        ],
+        "f1": 1.0,
+        "fn": 0,
+        "forbidden_hits": [],
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 5
+      },
+      "retrieval_degraded": false,
+      "rules": {
+        "rule_error_sections": 0,
+        "rule_errors_by_code": {
+          "CITE_DOC_MISMATCH": 0,
+          "CITE_EMPTY": 0,
+          "CITE_OUT_OF_RANGE": 0,
+          "QUOTE_FORBIDDEN": 0
+        },
+        "rule_total_errors": 0
+      },
+      "sections": [
+        {
+          "id": "section_1",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 70,
+          "score_before": 70,
+          "strategy": "generate",
+          "title": "施工组织设计"
+        },
+        {
+          "id": "section_2",
+          "placeholders": [],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 82,
+          "score_before": 82,
+          "strategy": "generate",
+          "title": "项目管理机构"
+        },
+        {
+          "id": "section_3",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 85,
+          "score_before": 85,
+          "strategy": "generate",
+          "title": "商务响应方案"
+        },
+        {
+          "id": "section_4",
+          "placeholders": [
+            "【待填写：投标报价】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标报价"
+        },
+        {
+          "id": "section_5",
+          "placeholders": [
+            "【待填写：投标书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标书"
+        },
+        {
+          "id": "section_6",
+          "placeholders": [
+            "【待填写：授权委托书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "授权委托书"
+        },
+        {
+          "id": "section_7",
+          "placeholders": [
+            "【待填写：开标一览表】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "开标一览表"
+        },
+        {
+          "id": "section_8",
+          "placeholders": [
+            "【待填写：投标分项报价表】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标分项报价表"
+        }
+      ],
+      "total_revisions": 0,
+      "ungrounded_signal_count": 0,
+      "ungrounded_signals": {
+        "count": 0,
+        "names": []
+      }
+    },
+    "B_review_revise": {
+      "avg_score_after": 85.0,
+      "citation": {
+        "citation_valid_rate": 1.0,
+        "invalid_sections": 0,
+        "sections_with_markers": 3,
+        "valid_sections": 3
+      },
+      "coverage": {
+        "body": {
+          "covered": 4,
+          "gaps": [
+            "投标报价"
+          ],
+          "rate": 0.8,
+          "total": 5
+        },
+        "evidence": {
+          "covered": 4,
+          "gaps": [
+            "投标报价"
+          ],
+          "rate": 0.8,
+          "total": 5
+        },
+        "plan": {
+          "covered": 5,
+          "gaps": [],
+          "rate": 1.0,
+          "total": 5
+        }
+      },
+      "llm_usage": {
+        "calls": 9,
+        "completion_tokens": 1080,
+        "cost_estimated": false,
+        "estimated_cost": 0.0,
+        "models": [
+          "fake-model"
+        ],
+        "price_input_per_1k": 0.0,
+        "price_output_per_1k": 0.0,
+        "prompt_tokens": 1150,
+        "total_tokens": 2230
+      },
+      "placeholders": {
+        "actual": [
+          "【待填写：开标一览表】",
+          "【待填写：投标书】",
+          "【待填写：投标分项报价表】",
+          "【待填写：投标报价】",
+          "【待填写：授权委托书】"
+        ],
+        "expected_absent": [
+          "【待填写：主讲教师】"
+        ],
+        "expected_present": [
+          "【待填写：开标一览表】",
+          "【待填写：投标书】",
+          "【待填写：投标分项报价表】",
+          "【待填写：投标报价】",
+          "【待填写：授权委托书】"
+        ],
+        "f1": 1.0,
+        "fn": 0,
+        "forbidden_hits": [],
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 5
+      },
+      "retrieval_degraded": false,
+      "rules": {
+        "rule_error_sections": 0,
+        "rule_errors_by_code": {
+          "CITE_DOC_MISMATCH": 0,
+          "CITE_EMPTY": 0,
+          "CITE_OUT_OF_RANGE": 0,
+          "QUOTE_FORBIDDEN": 0
+        },
+        "rule_total_errors": 0
+      },
+      "sections": [
+        {
+          "id": "section_1",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 1,
+          "rule_codes": [],
+          "score_after": 88,
+          "score_before": 70,
+          "strategy": "generate",
+          "title": "施工组织设计"
+        },
+        {
+          "id": "section_2",
+          "placeholders": [],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 82,
+          "score_before": 82,
+          "strategy": "generate",
+          "title": "项目管理机构"
+        },
+        {
+          "id": "section_3",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 85,
+          "score_before": 85,
+          "strategy": "generate",
+          "title": "商务响应方案"
+        },
+        {
+          "id": "section_4",
+          "placeholders": [
+            "【待填写：投标报价】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标报价"
+        },
+        {
+          "id": "section_5",
+          "placeholders": [
+            "【待填写：投标书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标书"
+        },
+        {
+          "id": "section_6",
+          "placeholders": [
+            "【待填写：授权委托书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "授权委托书"
+        },
+        {
+          "id": "section_7",
+          "placeholders": [
+            "【待填写：开标一览表】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "开标一览表"
+        },
+        {
+          "id": "section_8",
+          "placeholders": [
+            "【待填写：投标分项报价表】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标分项报价表"
+        }
+      ],
+      "total_revisions": 1,
+      "ungrounded_signal_count": 0,
+      "ungrounded_signals": {
+        "count": 0,
+        "names": []
+      }
+    }
+  },
+  "ab_delta": {
+    "coverage.body.covered": 0,
+    "coverage.evidence.covered": 0,
+    "coverage.plan.covered": 0,
+    "llm_usage.calls": 2,
+    "llm_usage.completion_tokens": 260,
+    "llm_usage.prompt_tokens": 260,
+    "llm_usage.total_tokens": 520,
+    "placeholders.fn": 0,
+    "placeholders.fp": 0,
+    "placeholders.tp": 0,
+    "rules.rule_error_sections": 0,
+    "rules.rule_total_errors": 0,
+    "total_revisions": 1,
+    "ungrounded_signal_count": 0
+  }
+}

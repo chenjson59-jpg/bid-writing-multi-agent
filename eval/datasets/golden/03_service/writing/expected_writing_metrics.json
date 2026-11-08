@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "expected_placeholders": {
+    "present": [
+      "【待填写：投标书】",
+      "【待填写：报价】",
+      "【待填写：授权委托书】"
+    ],
+    "absent": [
+      "【待填写：主讲教师】"
+    ]
+  },
+  "arms": {
+    "A_single_pass": {
+      "avg_score_after": 81.0,
+      "citation": {
+        "citation_valid_rate": 0.6666666666666666,
+        "invalid_sections": 1,
+        "sections_with_markers": 3,
+        "valid_sections": 2
+      },
+      "coverage": {
+        "body": {
+          "covered": 3,
+          "gaps": [
+            "报价"
+          ],
+          "rate": 0.75,
+          "total": 4
+        },
+        "evidence": {
+          "covered": 2,
+          "gaps": [
+            "培训方案",
+            "报价"
+          ],
+          "rate": 0.5,
+          "total": 4
+        },
+        "plan": {
+          "covered": 4,
+          "gaps": [],
+          "rate": 1.0,
+          "total": 4
+        }
+      },
+      "llm_usage": {
+        "calls": 7,
+        "completion_tokens": 820,
+        "cost_estimated": false,
+        "estimated_cost": 0.0,
+        "models": [
+          "fake-model"
+        ],
+        "price_input_per_1k": 0.0,
+        "price_output_per_1k": 0.0,
+        "prompt_tokens": 890,
+        "total_tokens": 1710
+      },
+      "placeholders": {
+        "actual": [
+          "【待填写：主讲教师】",
+          "【待填写：投标书】",
+          "【待填写：报价】",
+          "【待填写：授权委托书】"
+        ],
+        "expected_absent": [
+          "【待填写：主讲教师】"
+        ],
+        "expected_present": [
+          "【待填写：投标书】",
+          "【待填写：报价】",
+          "【待填写：授权委托书】"
+        ],
+        "f1": 0.8571428571428571,
+        "fn": 0,
+        "forbidden_hits": [
+          "【待填写：主讲教师】"
+        ],
+        "fp": 1,
+        "precision": 0.75,
+        "recall": 1.0,
+        "tp": 3
+      },
+      "retrieval_degraded": true,
+      "rules": {
+        "rule_error_sections": 1,
+        "rule_errors_by_code": {
+          "CITE_DOC_MISMATCH": 0,
+          "CITE_EMPTY": 1,
+          "CITE_OUT_OF_RANGE": 0,
+          "QUOTE_FORBIDDEN": 0
+        },
+        "rule_total_errors": 1
+      },
+      "sections": [
+        {
+          "id": "section_1",
+          "placeholders": [],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [
+            "CITE_EMPTY"
+          ],
+          "score_after": 80,
+          "score_before": 80,
+          "strategy": "generate",
+          "title": "培训方案"
+        },
+        {
+          "id": "section_2",
+          "placeholders": [
+            "【待填写：主讲教师】"
+          ],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 79,
+          "score_before": 79,
+          "strategy": "generate",
+          "title": "师资配置"
+        },
+        {
+          "id": "section_3",
+          "placeholders": [],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 84,
+          "score_before": 84,
+          "strategy": "generate",
+          "title": "服务经验"
+        },
+        {
+          "id": "section_4",
+          "placeholders": [
+            "【待填写：报价】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "报价"
+        },
+        {
+          "id": "section_5",
+          "placeholders": [
+            "【待填写：投标书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标书"
+        },
+        {
+          "id": "section_6",
+          "placeholders": [
+            "【待填写：授权委托书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "授权委托书"
+        }
+      ],
+      "total_revisions": 0,
+      "ungrounded_signal_count": 1,
+      "ungrounded_signals": {
+        "count": 1,
+        "names": [
+          "培训方案"
+        ]
+      }
+    },
+    "B_review_revise": {
+      "avg_score_after": 81.0,
+      "citation": {
+        "citation_valid_rate": 0.6666666666666666,
+        "invalid_sections": 1,
+        "sections_with_markers": 3,
+        "valid_sections": 2
+      },
+      "coverage": {
+        "body": {
+          "covered": 3,
+          "gaps": [
+            "报价"
+          ],
+          "rate": 0.75,
+          "total": 4
+        },
+        "evidence": {
+          "covered": 2,
+          "gaps": [
+            "培训方案",
+            "报价"
+          ],
+          "rate": 0.5,
+          "total": 4
+        },
+        "plan": {
+          "covered": 4,
+          "gaps": [],
+          "rate": 1.0,
+          "total": 4
+        }
+      },
+      "llm_usage": {
+        "calls": 7,
+        "completion_tokens": 820,
+        "cost_estimated": false,
+        "estimated_cost": 0.0,
+        "models": [
+          "fake-model"
+        ],
+        "price_input_per_1k": 0.0,
+        "price_output_per_1k": 0.0,
+        "prompt_tokens": 890,
+        "total_tokens": 1710
+      },
+      "placeholders": {
+        "actual": [
+          "【待填写：主讲教师】",
+          "【待填写：投标书】",
+          "【待填写：报价】",
+          "【待填写：授权委托书】"
+        ],
+        "expected_absent": [
+          "【待填写：主讲教师】"
+        ],
+        "expected_present": [
+          "【待填写：投标书】",
+          "【待填写：报价】",
+          "【待填写：授权委托书】"
+        ],
+        "f1": 0.8571428571428571,
+        "fn": 0,
+        "forbidden_hits": [
+          "【待填写：主讲教师】"
+        ],
+        "fp": 1,
+        "precision": 0.75,
+        "recall": 1.0,
+        "tp": 3
+      },
+      "retrieval_degraded": true,
+      "rules": {
+        "rule_error_sections": 1,
+        "rule_errors_by_code": {
+          "CITE_DOC_MISMATCH": 0,
+          "CITE_EMPTY": 1,
+          "CITE_OUT_OF_RANGE": 0,
+          "QUOTE_FORBIDDEN": 0
+        },
+        "rule_total_errors": 1
+      },
+      "sections": [
+        {
+          "id": "section_1",
+          "placeholders": [],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [
+            "CITE_EMPTY"
+          ],
+          "score_after": 80,
+          "score_before": 80,
+          "strategy": "generate",
+          "title": "培训方案"
+        },
+        {
+          "id": "section_2",
+          "placeholders": [
+            "【待填写：主讲教师】"
+          ],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 79,
+          "score_before": 79,
+          "strategy": "generate",
+          "title": "师资配置"
+        },
+        {
+          "id": "section_3",
+          "placeholders": [],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 84,
+          "score_before": 84,
+          "strategy": "generate",
+          "title": "服务经验"
+        },
+        {
+          "id": "section_4",
+          "placeholders": [
+            "【待填写：报价】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "报价"
+        },
+        {
+          "id": "section_5",
+          "placeholders": [
+            "【待填写：投标书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "投标书"
+        },
+        {
+          "id": "section_6",
+          "placeholders": [
+            "【待填写：授权委托书】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "授权委托书"
+        }
+      ],
+      "total_revisions": 0,
+      "ungrounded_signal_count": 1,
+      "ungrounded_signals": {
+        "count": 1,
+        "names": [
+          "培训方案"
+        ]
+      }
+    }
+  },
+  "ab_delta": {
+    "coverage.body.covered": 0,
+    "coverage.evidence.covered": 0,
+    "coverage.plan.covered": 0,
+    "llm_usage.calls": 0,
+    "llm_usage.completion_tokens": 0,
+    "llm_usage.prompt_tokens": 0,
+    "llm_usage.total_tokens": 0,
+    "placeholders.fn": 0,
+    "placeholders.fp": 0,
+    "placeholders.tp": 0,
+    "rules.rule_error_sections": 0,
+    "rules.rule_total_errors": 0,
+    "total_revisions": 0,
+    "ungrounded_signal_count": 0
+  }
+}

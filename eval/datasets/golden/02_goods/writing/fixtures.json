@@ -1,0 +1,65 @@
+{
+  "planner": [
+    {
+      "content": "{\n  \"sections\": [\n    {\"title\": \"技术参数响应方案\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"技术参数响应情况\"], \"requirements\": \"逐条响应技术参数\", \"retrieval_query\": \"技术参数响应方案\"},\n    {\"title\": \"售后服务方案\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"售后服务方案\"], \"requirements\": \"响应售后服务评审\", \"retrieval_query\": \"售后服务方案\"},\n    {\"title\": \"企业综合实力方案\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"企业综合实力\"], \"requirements\": \"响应企业综合实力评审\", \"retrieval_query\": \"企业综合实力方案\"},\n    {\"title\": \"货物价格分\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [\"货物价格分\"], \"requirements\": \"\", \"retrieval_query\": \"货物价格分\"},\n    {\"title\": \"中小企业声明函（货物）格式\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"中小企业声明函（货物）格式\"},\n    {\"title\": \"残疾人福利性单位声明函格式\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"残疾人福利性单位声明函格式\"}\n  ]\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300}
+    }
+  ],
+  "writer:技术参数响应方案": [
+    {
+      "content": "技术参数响应情况逐条对照招标文件列明，关键参数依据原文片段[3]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:技术参数响应方案": [
+    {
+      "content": "{\"score\": 80, \"covered_points\": [\"技术参数响应情况\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ],
+  "writer:售后服务方案": [
+    {
+      "content": "售后服务方案承诺七乘二十四小时响应，免费质保三年，并在报价基础上让利 5%，服务流程依据原文[1][2]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:售后服务方案": [
+    {
+      "content": "{\"score\": 78, \"covered_points\": [\"售后服务方案\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ],
+  "writer:企业综合实力方案": [
+    {
+      "content": "企业综合实力从研发能力、同类项目经验与质量管理体系三方面说明，均有原文依据[1]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:企业综合实力方案": [
+    {
+      "content": "{\"score\": 83, \"covered_points\": [\"企业综合实力\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ]
+}

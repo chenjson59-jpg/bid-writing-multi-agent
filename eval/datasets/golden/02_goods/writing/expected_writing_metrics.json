@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "expected_placeholders": {
+    "present": [
+      "【待填写：中小企业声明函（货物）格式】",
+      "【待填写：残疾人福利性单位声明函格式】",
+      "【待填写：货物价格分】"
+    ],
+    "absent": [
+      "【待填写：主讲教师】"
+    ]
+  },
+  "arms": {
+    "A_single_pass": {
+      "avg_score_after": 80.3333,
+      "citation": {
+        "citation_valid_rate": 0.6666666666666666,
+        "invalid_sections": 1,
+        "sections_with_markers": 3,
+        "valid_sections": 2
+      },
+      "coverage": {
+        "body": {
+          "covered": 3,
+          "gaps": [
+            "货物价格分"
+          ],
+          "rate": 0.75,
+          "total": 4
+        },
+        "evidence": {
+          "covered": 2,
+          "gaps": [
+            "货物价格分",
+            "技术参数响应情况"
+          ],
+          "rate": 0.5,
+          "total": 4
+        },
+        "plan": {
+          "covered": 4,
+          "gaps": [],
+          "rate": 1.0,
+          "total": 4
+        }
+      },
+      "llm_usage": {
+        "calls": 7,
+        "completion_tokens": 820,
+        "cost_estimated": false,
+        "estimated_cost": 0.0,
+        "models": [
+          "fake-model"
+        ],
+        "price_input_per_1k": 0.0,
+        "price_output_per_1k": 0.0,
+        "prompt_tokens": 890,
+        "total_tokens": 1710
+      },
+      "placeholders": {
+        "actual": [
+          "【待填写：中小企业声明函（货物）格式】",
+          "【待填写：残疾人福利性单位声明函格式】",
+          "【待填写：货物价格分】"
+        ],
+        "expected_absent": [
+          "【待填写：主讲教师】"
+        ],
+        "expected_present": [
+          "【待填写：中小企业声明函（货物）格式】",
+          "【待填写：残疾人福利性单位声明函格式】",
+          "【待填写：货物价格分】"
+        ],
+        "f1": 1.0,
+        "fn": 0,
+        "forbidden_hits": [],
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 3
+      },
+      "retrieval_degraded": false,
+      "rules": {
+        "rule_error_sections": 2,
+        "rule_errors_by_code": {
+          "CITE_DOC_MISMATCH": 1,
+          "CITE_EMPTY": 0,
+          "CITE_OUT_OF_RANGE": 1,
+          "QUOTE_FORBIDDEN": 1
+        },
+        "rule_total_errors": 3
+      },
+      "sections": [
+        {
+          "id": "section_1",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [
+            "CITE_OUT_OF_RANGE",
+            "CITE_DOC_MISMATCH"
+          ],
+          "score_after": 80,
+          "score_before": 80,
+          "strategy": "generate",
+          "title": "技术参数响应方案"
+        },
+        {
+          "id": "section_2",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [
+            "QUOTE_FORBIDDEN"
+          ],
+          "score_after": 78,
+          "score_before": 78,
+          "strategy": "generate",
+          "title": "售后服务方案"
+        },
+        {
+          "id": "section_3",
+          "placeholders": [],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 83,
+          "score_before": 83,
+          "strategy": "generate",
+          "title": "企业综合实力方案"
+        },
+        {
+          "id": "section_4",
+          "placeholders": [
+            "【待填写：货物价格分】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "货物价格分"
+        },
+        {
+          "id": "section_5",
+          "placeholders": [
+            "【待填写：中小企业声明函（货物）格式】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "中小企业声明函（货物）格式"
+        },
+        {
+          "id": "section_6",
+          "placeholders": [
+            "【待填写：残疾人福利性单位声明函格式】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "残疾人福利性单位声明函格式"
+        }
+      ],
+      "total_revisions": 0,
+      "ungrounded_signal_count": 1,
+      "ungrounded_signals": {
+        "count": 1,
+        "names": [
+          "技术参数响应情况"
+        ]
+      }
+    },
+    "B_review_revise": {
+      "avg_score_after": 80.3333,
+      "citation": {
+        "citation_valid_rate": 0.6666666666666666,
+        "invalid_sections": 1,
+        "sections_with_markers": 3,
+        "valid_sections": 2
+      },
+      "coverage": {
+        "body": {
+          "covered": 3,
+          "gaps": [
+            "货物价格分"
+          ],
+          "rate": 0.75,
+          "total": 4
+        },
+        "evidence": {
+          "covered": 2,
+          "gaps": [
+            "货物价格分",
+            "技术参数响应情况"
+          ],
+          "rate": 0.5,
+          "total": 4
+        },
+        "plan": {
+          "covered": 4,
+          "gaps": [],
+          "rate": 1.0,
+          "total": 4
+        }
+      },
+      "llm_usage": {
+        "calls": 7,
+        "completion_tokens": 820,
+        "cost_estimated": false,
+        "estimated_cost": 0.0,
+        "models": [
+          "fake-model"
+        ],
+        "price_input_per_1k": 0.0,
+        "price_output_per_1k": 0.0,
+        "prompt_tokens": 890,
+        "total_tokens": 1710
+      },
+      "placeholders": {
+        "actual": [
+          "【待填写：中小企业声明函（货物）格式】",
+          "【待填写：残疾人福利性单位声明函格式】",
+          "【待填写：货物价格分】"
+        ],
+        "expected_absent": [
+          "【待填写：主讲教师】"
+        ],
+        "expected_present": [
+          "【待填写：中小企业声明函（货物）格式】",
+          "【待填写：残疾人福利性单位声明函格式】",
+          "【待填写：货物价格分】"
+        ],
+        "f1": 1.0,
+        "fn": 0,
+        "forbidden_hits": [],
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 3
+      },
+      "retrieval_degraded": false,
+      "rules": {
+        "rule_error_sections": 2,
+        "rule_errors_by_code": {
+          "CITE_DOC_MISMATCH": 1,
+          "CITE_EMPTY": 0,
+          "CITE_OUT_OF_RANGE": 1,
+          "QUOTE_FORBIDDEN": 1
+        },
+        "rule_total_errors": 3
+      },
+      "sections": [
+        {
+          "id": "section_1",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [
+            "CITE_OUT_OF_RANGE",
+            "CITE_DOC_MISMATCH"
+          ],
+          "score_after": 80,
+          "score_before": 80,
+          "strategy": "generate",
+          "title": "技术参数响应方案"
+        },
+        {
+          "id": "section_2",
+          "placeholders": [],
+          "retrieved_count": 2,
+          "revisions": 0,
+          "rule_codes": [
+            "QUOTE_FORBIDDEN"
+          ],
+          "score_after": 78,
+          "score_before": 78,
+          "strategy": "generate",
+          "title": "售后服务方案"
+        },
+        {
+          "id": "section_3",
+          "placeholders": [],
+          "retrieved_count": 1,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 83,
+          "score_before": 83,
+          "strategy": "generate",
+          "title": "企业综合实力方案"
+        },
+        {
+          "id": "section_4",
+          "placeholders": [
+            "【待填写：货物价格分】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "货物价格分"
+        },
+        {
+          "id": "section_5",
+          "placeholders": [
+            "【待填写：中小企业声明函（货物）格式】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "中小企业声明函（货物）格式"
+        },
+        {
+          "id": "section_6",
+          "placeholders": [
+            "【待填写：残疾人福利性单位声明函格式】"
+          ],
+          "retrieved_count": 0,
+          "revisions": 0,
+          "rule_codes": [],
+          "score_after": 100,
+          "score_before": 100,
+          "strategy": "placeholder",
+          "title": "残疾人福利性单位声明函格式"
+        }
+      ],
+      "total_revisions": 0,
+      "ungrounded_signal_count": 1,
+      "ungrounded_signals": {
+        "count": 1,
+        "names": [
+          "技术参数响应情况"
+        ]
+      }
+    }
+  },
+  "ab_delta": {
+    "coverage.body.covered": 0,
+    "coverage.evidence.covered": 0,
+    "coverage.plan.covered": 0,
+    "llm_usage.calls": 0,
+    "llm_usage.completion_tokens": 0,
+    "llm_usage.prompt_tokens": 0,
+    "llm_usage.total_tokens": 0,
+    "placeholders.fn": 0,
+    "placeholders.fp": 0,
+    "placeholders.tp": 0,
+    "rules.rule_error_sections": 0,
+    "rules.rule_total_errors": 0,
+    "total_revisions": 0,
+    "ungrounded_signal_count": 0
+  }
+}

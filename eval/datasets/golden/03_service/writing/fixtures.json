@@ -1,0 +1,65 @@
+{
+  "planner": [
+    {
+      "content": "{\n  \"sections\": [\n    {\"title\": \"培训方案\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"培训方案\"], \"requirements\": \"响应课程体系与实施安排\", \"retrieval_query\": \"培训方案\"},\n    {\"title\": \"师资配置\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"师资配置\"], \"requirements\": \"响应师资配置评审\", \"retrieval_query\": \"师资配置\"},\n    {\"title\": \"服务经验\", \"strategy\": \"generate\", \"target_words\": 1200, \"scoring_factors\": [\"服务经验\"], \"requirements\": \"响应服务经验评审\", \"retrieval_query\": \"服务经验\"},\n    {\"title\": \"报价\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [\"报价\"], \"requirements\": \"\", \"retrieval_query\": \"报价\"},\n    {\"title\": \"投标书\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"投标书\"},\n    {\"title\": \"授权委托书\", \"strategy\": \"placeholder\", \"target_words\": 0, \"scoring_factors\": [], \"requirements\": \"\", \"retrieval_query\": \"授权委托书\"}\n  ]\n}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300}
+    }
+  ],
+  "writer:培训方案": [
+    {
+      "content": "培训方案围绕数字化转型课程体系设计，含实施安排与考核方式，因检索降级无可用片段仍标注引用[1]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:培训方案": [
+    {
+      "content": "{\"score\": 80, \"covered_points\": [\"培训方案\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ],
+  "writer:师资配置": [
+    {
+      "content": "师资配置列明主讲教师与助教团队，主讲教师姓名暂缺：【待填写：主讲教师】，其余师资介绍依据原文[1]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:师资配置": [
+    {
+      "content": "{\"score\": 79, \"covered_points\": [\"师资配置\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 1}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ],
+  "writer:服务经验": [
+    {
+      "content": "服务经验列举同类数字化培训项目的交付情况与客户评价，依据原文片段[1]。",
+      "finish_reason": "stop",
+      "json_mode_used": false,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 150, "completion_tokens": 200, "total_tokens": 350}
+    }
+  ],
+  "reviewer:服务经验": [
+    {
+      "content": "{\"score\": 84, \"covered_points\": [\"服务经验\"], \"issues\": [], \"suggestions\": [], \"placeholder_count\": 0}",
+      "finish_reason": "stop",
+      "json_mode_used": true,
+      "model": "fake-model",
+      "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}
+    }
+  ]
+}

@@ -161,13 +161,19 @@ chroma_db/                   # 本地向量库
 Markdown、脚本化假模型夹具与人工核定的期望抽取产物，全程离线、零网络依赖：
 
 ```powershell
-uv run python -m eval.harness.runner          # 精确匹配基线 + 字段级 P/R/F1 与未溯源字段率，失配退出码 1
-uv run pytest -q                              # eval harness 自身的单元测试在 tests/ 内
+uv run python -m eval.harness.runner             # 抽取链：精确匹配 + 字段级 P/R/F1 与未溯源字段率，失配退出码 1
+uv run python -m eval.harness.writing_runner     # 编写链：三份样本 A/B 两臂冻结基线，失配退出码 1（T-022）
+uv run pytest -q                                 # eval harness 自身的单元测试在 tests/ 内
 ```
 
 样本刻意覆盖脏数据归一化（字符串分值、null、非法条目）、代码围栏/空响应重试、
 未溯源字段（`ungrounded_fields`）等边界；新增样本与冻结流程见 `eval/README.md`。
-抽取阶段字段级 Precision/Recall/F1 与未溯源字段率已在该底座上实现（T-021，口径见 `eval/README.md` 第 7 节）；编写阶段指标（T-022）待扩展。真实模型效果评测不混入单元测试。
+抽取阶段字段级 Precision/Recall/F1 与未溯源字段率已在该底座上实现（T-021，口径见
+`eval/README.md` 第 7 节）。编写阶段（T-022，第 8 节）以同目录冻结的抽取产物为输入，
+用脚本化假模型与 Fake 检索驱动完整编写链，A/B 两臂分别对应 `max_revisions=0` 单轮直写
+与 `max_revisions=1` 评审修订闭环，输出三层覆盖率、章节级引用有效率、确定性规则违规数、
+无依据信号（非幻觉检测）、占位符 P/R/F1 与合成 token/调用数基线，并覆盖无检索、引用
+越界、错 doc_id、报价禁令、检索降级等边界。真实模型效果评测不混入单元测试。
 
 ## HTTP API
 
