@@ -23,6 +23,7 @@ Plan-and-Execute 风格编写流程（标准库线程池章节级并发），以
 | [`docs/algorithms.md`](docs/algorithms.md) | 解析/抽取/检索/编写核心算法、投标编写代码精读 |
 | [`docs/code-guide.md`](docs/code-guide.md) | 代码阅读路径与提交前验证门禁 |
 | [`docs/deployment.md`](docs/deployment.md) | 单机服务器部署：Redis 容器 compose、tmux 双进程、验证与排障 |
+| [`docs/containerization-feasibility.md`](docs/containerization-feasibility.md) | 二期预研：应用容器化可行性（双进程拆分、Chroma 卷、CI 成本），非当前能力 |
 | [`AGENTS.md`](AGENTS.md) | 工程协作规范、LLM/RAG 约束与完成定义 |
 
 ## 目录结构
