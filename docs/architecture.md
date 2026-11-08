@@ -2192,7 +2192,7 @@ sequenceDiagram
 
 | 组件 | 主要代码 | 职责 |
 |---|---|---|
-| 桌面工作台 | `frontend/src/App.tsx`、`frontend/src/features/` | 四个工作区、共享状态、轮询、表单、结果展示 |
+| 桌面工作台 | `frontend/src/App.tsx`、`frontend/src/pages/`、`frontend/src/lib/` | 四个工作区、共享状态、轮询、表单、结果展示 |
 | 接口服务 | `api/routes.py`、`api/library.py`、`api/schemas.py` | 上传、编写、轮询、资料库、产物 |
 | 任务分发 | `api/dispatch.py`、`api/jobs.py` | 队列/本地后端、任务状态、结果映射 |
 | 后台执行器 | `src/tasks.py`、`src/celery_app.py` | 任务定义、进度、解析/编写执行 |
@@ -2200,7 +2200,7 @@ sequenceDiagram
 | 结构化抽取 | `src/extraction/` | 单元切分、提示词、Schema、合并、核对、缓存 |
 | 检索索引 | `src/vectorstore/` | 分块、嵌入、幂等入库、检索 |
 | 编写编排 | `src/bid_writer/graph.py`、`agents.py` | 策划、扇出、写作、评审、修订、汇总 |
-| 覆盖报告 | `src/bid_writer/assembly.py`、`src/summaries.py` | 格式/评分覆盖、占位符、摘要 |
+| 覆盖报告 | `src/bid_writer/assembly.py` | 格式/评分覆盖、占位符、摘要 |
 | Word 导出 | `src/bid_writer/docx_export.py` | Markdown 转 Word |
 | 桌面桥 | `frontend/electron/main.cjs`、`preload.cjs` | IPC、路径白名单、打开文件/定位 |
 | 命令行 | `src/cli/` | 解析、抽取、索引、检索、编写、自检 |

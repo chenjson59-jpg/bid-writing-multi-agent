@@ -1822,12 +1822,14 @@ def report(message):
 | 测试文件 | 覆盖算法 |
 |---|---|
 | `tests/test_toc.py` | A1、A2、A3、A4 |
-| `tests/test_parsing.py` | A5、A6、A7、A8 |
+| `tests/test_splitter.py` | A5 PDF 均衡分片 |
+| `tests/test_builder.py` | A6 云端结果合并 |
+| `tests/test_local_parser.py` | A7、A8 本地页面清洗与表格扁平化 |
 | `tests/test_extraction.py` | A9–A14 |
 | `tests/test_vectorstore.py` | A15–A17 |
 | `tests/test_bid_writer.py` | A18–A20 |
 | `tests/test_bid_writer_export.py` | A21 |
-| `tests/test_celery.py` / `test_api.py` / `test_bid_api.py` | A22 与任务接口 |
+| `tests/test_api.py` / `test_e2e.py` | A22 与任务接口（测 dispatch 抽象，离线不依赖真实 Redis） |
 
 #### 13.2 关键回归
 

@@ -31,6 +31,11 @@ jobs:
       - name: 编写阶段离线评测（T-022，A/B 冻结基线）
         run: uv run python -m eval.harness.writing_runner
 
+      - name: Redis compose 制品校验（T-024，仅 config 不起容器）
+        run: |
+          echo 'REDIS_PASSWORD=ci-placeholder' > /tmp/redis-compose.env
+          docker compose -f deploy/docker-compose.redis.yml --env-file /tmp/redis-compose.env config
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

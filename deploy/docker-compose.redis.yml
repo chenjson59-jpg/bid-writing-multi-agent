@@ -1,0 +1,35 @@
+# 仅编排 Redis 容器；应用（uvicorn API + Celery worker）不容器化，
+# 仍按 docs/deployment.md 的 tmux 形态在宿主机运行（决策见 ADR-014）。
+#
+# 用法（在仓库根目录执行）：
+#   cp deploy/.env.example deploy/.env      # 填入强密码；deploy/.env 已被 .gitignore 忽略
+#   docker compose -f deploy/docker-compose.redis.yml --env-file deploy/.env up -d
+#   docker compose -f deploy/docker-compose.redis.yml --env-file deploy/.env ps
+#   docker compose -f deploy/docker-compose.redis.yml --env-file deploy/.env down
+#
+# 下列参数与 docs/deployment.md 第 4 节的等价手工 docker run 一一对应：
+# 仅绑定 127.0.0.1、宿主端口 6382、命名卷持久化、AOF 开启、密码必填。
+# 固定 project 与卷名，使 compose 与手工 docker run 产出同名资源
+# （容器 bidding-redis、卷 bidding-redis-data），两种方式可互相替代。
+
+name: bidding
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: bidding-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?请先在 deploy/.env 中设置 REDIS_PASSWORD}
+      - --appendonly
+      - "yes"
+    ports:
+      - "127.0.0.1:6382:6379"
+    volumes:
+      - bidding-redis-data:/data
+
+volumes:
+  bidding-redis-data:
+    name: bidding-redis-data
