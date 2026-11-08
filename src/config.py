@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 32768
     llm_thinking: str = "disabled"
+    # OpenAI SDK 内置重试次数（429/5xx/408/409/超时/连接错误可重试，其余 4xx 不重试）
+    llm_max_retries: int = 2
 
     # ---- 嵌入与检索（火山方舟 + Chroma）----
     embedding_api_key: str = ""
@@ -84,6 +86,10 @@ class Settings(BaseSettings):
     mineru_model_version: str = "vlm"
     mineru_poll_interval: int = 5
     mineru_max_polls: int = 120
+    # 传输层重试次数（不含首次调用；0 表示关闭重试，与旧版零重试行为等价）
+    mineru_max_retries: int = 3
+    # 指数退避基数（秒）：第 n 次重试等待 base*2^n + [0,base) 抖动
+    mineru_retry_backoff_base_seconds: float = 1.0
     mineru_language: str = "ch"
     mineru_enable_formula: bool = True
     mineru_enable_table: bool = True

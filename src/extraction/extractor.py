@@ -629,6 +629,7 @@ class DeepSeekModelCaller:
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
             timeout=settings.llm_timeout,
+            max_retries=settings.llm_max_retries,
         )
         self._model = settings.deepseek_model
 

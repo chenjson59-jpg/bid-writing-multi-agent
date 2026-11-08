@@ -185,3 +185,29 @@ def test_run_ingest_returns_summary(workspace, monkeypatch):
     assert summary.added == 2
     assert captured["doc_id"]
     assert captured["project_name"] == "测试项目"
+
+# ---- 云端失败后的降级/失败语义（T-026 回归锁：重试耗尽后行为不变）----
+
+
+def _boom_cloud(*args, **kwargs):
+    raise RuntimeError("cloud down")
+
+
+def test_run_parse_auto_falls_back_when_cloud_fails(workspace, monkeypatch):
+    pdf = workspace / "auto.pdf"
+    _make_pdf(pdf)
+    monkeypatch.setattr(pipeline, "parse_cloud", _boom_cloud)
+
+    doc = pipeline.run_parse(pdf, parser="auto", api_key="test-key")
+
+    assert doc.parser == "local"
+    assert any("回退本地解析" in w for w in doc.warnings)
+
+
+def test_run_parse_cloud_mode_raises_parse_error(workspace, monkeypatch):
+    pdf = workspace / "cloud.pdf"
+    _make_pdf(pdf)
+    monkeypatch.setattr(pipeline, "parse_cloud", _boom_cloud)
+
+    with pytest.raises(pipeline.ParseError, match="云端解析失败"):
+        pipeline.run_parse(pdf, parser="cloud", api_key="test-key")

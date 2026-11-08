@@ -2031,10 +2031,16 @@ flowchart LR
 
 #### 17.3 超时与重试
 
-- 云端解析：请求、下载、轮询分别有超时；5xx 与 429 可重试；
-- 文本模型：连接、超时、限流、5xx 可重试；4xx 直接失败；
-- 嵌入服务：批量调用，失败会使入库或检索初始化失败；
-- 所有重试都有次数上限，避免无限等待。
+- 云端解析：请求、下载、轮询分别有超时（`MINERU_TIMEOUT`/`MINERU_DOWNLOAD_TIMEOUT`）；
+  四个 httpx 调用统一经 `RetryPolicy` 做传输重试（T-026），仅 429/5xx 与传输层异常
+  （超时、连接错误）可重试，4xx 鉴权/参数错误与 2xx 业务错误立即失败；次数
+  `MINERU_MAX_RETRIES`（默认 3，0 关闭）、退避 `base*2^n + [0,base) 抖动`
+  （`MINERU_RETRY_BACKOFF_BASE_SECONDS` 默认 1.0），合法 `Retry-After` 优先；
+- 文本模型：OpenAI SDK 内置传输重试，次数由 `LLM_MAX_RETRIES`（默认 2）显式配置，
+  连接、超时、408/409、429、5xx 可重试，其余 4xx 直接失败；
+- 嵌入服务：SDK 重试次数 `EMBEDDING_MAX_RETRIES`（默认 10），失败会使入库或检索初始化失败；
+- 所有重试都有次数上限，避免无限等待；重试耗尽后异常类型与消息不变，auto 模式仍按
+  既有链路降级本地 PyMuPDF，cloud/strict 模式仍抛 `ParseError`（退出码 4）。
 
 ---
 

@@ -365,6 +365,43 @@
 
 ---
 
+#### ADR-015：外部调用重试分层——文本 LLM 复用 SDK 内置重试，MinerU 自建分类退避
+
+- **状态**：已接受（T-026，2026-11-08）
+- **背景**：任务卡称「文本 LLM 无自动重试」，复核 main `8850c45` 后确认该前提有误：
+  `DeepSeekModelCaller` 未显式传 `max_retries`，openai 3.35.1 构造默认 `max_retries=2`，
+  SDK 已对 429/5xx/408/409/超时/连接错误做指数退避；真实缺口是隐式默认、不可配置。
+  同一复核确认 MinerU 四个裸 httpx 调用（申请链接 POST、上传 PUT、轮询 GET、下载 GET）
+  零传输重试，任何瞬时错误都会立即终结云端解析（auto 降级本地、cloud 直接失败）。
+- **决策**：
+  1. 文本 LLM 不自建包装层，新增 `LLM_MAX_RETRIES`（默认 2，与 SDK 隐式默认等价）
+     显式传入 `OpenAI(max_retries=...)`，与 `EMBEDDING_MAX_RETRIES` 对称；分类、退避、
+     `Retry-After` 处理全部沿用 SDK 已验证实现。
+  2. 否决备选方案「自建 RetryingCaller 并把 SDK 重试设 0」：需要重写 SDK 已验证的分类
+     逻辑，且任何调用点漏设 0 都会形成双层重试，退避时长与调用次数相乘放大，收益
+     （完全自控）在本项目无对应需求。
+  3. MinerU 新增 `RetryPolicy` 统一包装四个调用：可重试 = 429/5xx 与
+     `httpx.TransportError`（含全部超时与连接类异常）；不可重试 = 其余 4xx（鉴权/参数）
+     与 2xx 业务错误（batch_id 缺失、state=failed、zip 越界、空 extract_result）；
+     重试耗尽裸抛最后一个异常，类型/消息/traceback 不变。
+  4. 退避公式 `base*2^n + random()*base`，次数与基数由
+     `MINERU_MAX_RETRIES`（默认 3）/`MINERU_RETRY_BACKOFF_BASE_SECONDS`（默认 1.0）
+     配置；响应携带合法 `Retry-After`（0–120 秒）时优先采用，120 秒上限与 SDK 对齐；
+     `sleep`/`rng` 可注入，测试零真实等待并断言退避序列。
+  5. 幂等性结论：GET 轮询/下载天然幂等；PUT 预签名上传同 URL 同字节、替换语义，
+     重试幂等；POST 申请链接非严格幂等，重试理论上可能产生服务端孤儿 batch
+     （会自行过期、无数据损坏，且只有确认 200 的 batch_id 会被使用），相较整单
+     云端解析失败降级，代价可接受。
+  6. 可观测性仅用标准库 `logging.warning` 记录操作名、重试序号、异常类型/状态码，
+     不写入 `ParseStage.warnings` 或 job trace；最终失败仍走既有降级 warning 与
+     trace 语义。空 `extract_result` 维持立即 `ParseError`，不纳入瞬时容错，
+     避免无效 batch 场景白等最长轮询预算。
+- **后果**：MinerU 默认行为由零重试变为最多 3 次传输重试（瞬时抖动不再直接触发降级），
+  `MINERU_MAX_RETRIES=0` 可回到旧行为；文本 LLM 默认行为不变（隐式 2 次变为显式配置 2 次）。
+  异常层级、CLI 退出码、auto/cloud 降级链路与两个 eval 冻结基线均不变；零新增依赖。
+
+---
+
 ### 6. 已定稿 ADR（第二期不实现，列为后续演进）
 
 | 编号 | 决策 | 状态 |
@@ -580,7 +617,7 @@ Python 依赖全部安装在项目 `.venv` 中；`uv run` 会自动使用该环�
 | 最大输出 | `32768` tokens |
 | 思考模式 | 默认关闭（`LLM_THINKING=disabled`） |
 | JSON 模式 | 抽取时启用；模型不支持时自动退化 |
-| 重试 | 连接、超时、限流、5xx 自动重试；4xx 直接失败 |
+| 重试 | SDK 内置，次数由 `LLM_MAX_RETRIES`（默认 2）配置；连接、超时、408/409、429、5xx 自动重试，其余 4xx 直接失败 |
 
 使用位置：
 
@@ -957,6 +994,7 @@ FastAPI + Uvicorn :8001
 | `LLM_TEMPERATURE` | `0.0` | 温度 |
 | `LLM_MAX_TOKENS` | `32768` | 输出上限 |
 | `LLM_THINKING` | `disabled` | 思考模式 |
+| `LLM_MAX_RETRIES` | `2` | SDK 传输重试次数（0 关闭） |
 
 ##### 嵌入与检索
 
@@ -984,6 +1022,8 @@ FastAPI + Uvicorn :8001
 | `MINERU_MODEL_VERSION` | `vlm` | 模型版本 |
 | `MINERU_POLL_INTERVAL` | `5` | 轮询间隔 |
 | `MINERU_MAX_POLLS` | `120` | 最大轮询次数 |
+| `MINERU_MAX_RETRIES` | `3` | 传输层重试次数（不含首次，0 关闭） |
+| `MINERU_RETRY_BACKOFF_BASE_SECONDS` | `1.0` | 指数退避基数（秒） |
 | `MINERU_LANGUAGE` | `ch` | 语言 |
 | `MINERU_ENABLE_FORMULA` | `true` | 公式 |
 | `MINERU_ENABLE_TABLE` | `true` | 表格 |
@@ -1223,7 +1263,7 @@ npm run build
 | 任务保留期 | 24 小时后查询 404 | 前端已提示，必要时延长保留 |
 | 上传文件忽略规则 | `upload/files/*` 不再纳入版本控制 | 保留示例文件时需显式跟踪 |
 | 上传整文件读入内存 | `await file.read()` 全量读入，200 MB 上限下存在内存风险 | 改造为临时文件流式落盘 + 原子替换 |
-| 文本 LLM/MinerU 无自动重试 | 仅空结果硬编码重试一次与截断二分；429/5xx/网络抖动会导致任务失败（嵌入层已有 SDK 级重试） | 区分可重试错误，实现指数退避且次数可配置 |
+| ~~文本 LLM/MinerU 无自动重试~~ | 已解决（T-026，ADR-015）：文本 LLM 实为 SDK 隐式重试 2 次（任务卡前提有误），现 `LLM_MAX_RETRIES` 显式配置；MinerU 四个 httpx 调用统一 `RetryPolicy` 分类退避（`MINERU_MAX_RETRIES` 默认 3） | 已落地故障注入测试与降级回归锁 |
 
 ---
 

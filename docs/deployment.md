@@ -197,6 +197,16 @@ DATA_RETENTION_DAYS=30                          # 0 表示不自动清理，配�
 | `EMBEDDING_API_KEY` | 无法建立检索索引，编写时检索为空、质量下降 | 同上 |
 | `MINERU_API_KEY` | 云端解析不可用，自动回退 PyMuPDF 本地解析 | <https://mineru.net/apiManage/token>（有效期 90 天） |
 
+外部调用的重试/退避键（均有默认值，可不配置；T-026 起生效）：
+
+| 键 | 默认 | 含义 |
+|---|---|---|
+| `LLM_MAX_RETRIES` | `2` | 文本模型 SDK 传输重试次数，429/5xx/超时/连接错误可重试、其余 4xx 不重试，0 关闭 |
+| `MINERU_MAX_RETRIES` | `3` | MinerU 每个 httpx 调用的传输重试次数（不含首次），仅 429/5xx/超时/连接错误可重试，0 关闭 |
+| `MINERU_RETRY_BACKOFF_BASE_SECONDS` | `1.0` | 指数退避基数（秒）：第 n 次重试等待 `base*2^n` 加 [0,base) 抖动；合法 `Retry-After` 优先 |
+
+重试耗尽后的行为与旧版一致：auto 模式降级本地 PyMuPDF 并写回退 warning，cloud/strict 模式抛解析失败。
+
 若把 `DEEPSEEK_BASE_URL` 改回 `https://api.deepseek.com`，第 3 步的连通性检查需要
 同时放通该域名。另外确认 `upload/`、`chroma_db/`、`logs/` 三个目录存在且进程可写
 （它们都按仓库根目录锚定，不依赖当前工作目录）。
