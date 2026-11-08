@@ -361,6 +361,7 @@
   4. 一期定位单机开发/演示态，tmux 已满足 SSH 断开续跑；引入镜像构建链却没有 CI 实际构建验证，会违反「只描述可验证能力」的工程约束。
 - **备选**：完整应用容器化（多阶段 Dockerfile + compose 编排 api/worker/redis + 命名卷 + CI 镜像构建验证），留待出现多机部署或水平扩展需求的二期重新评估。
 - **后果**：部署依赖宿主机 Python 环境（uv 管理）与 tmux；Redis 容器拥有仓库内可复现制品；完整部署知识集中在 `docs/deployment.md`。
+- **二期重评**：完整应用容器化的约束、方案与 CI 成本评估见 `docs/containerization-feasibility.md`；触发条件满足前本决策保持有效。
 
 ---
 
