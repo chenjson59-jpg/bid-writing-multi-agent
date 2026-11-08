@@ -602,7 +602,9 @@ upload/
   "status": "ok",
   "version": "0.1.0",
   "task_backend": "celery",
-  "broker_ok": true
+  "broker_ok": true,
+  "worker_ok": true,
+  "queue_depth": 0
 }
 ```
 
@@ -612,6 +614,8 @@ upload/
 | `version` | 接口版本 |
 | `task_backend` | `celery` 或 `local` |
 | `broker_ok` | `true` 队列可用；`false` 队列不可用；`null` 本地模式不检查 |
+| `worker_ok` | Celery worker 在线探测（5 秒缓存）；`false` 为无消费者，本地模式恒为 `true` |
+| `queue_depth` | 当前排队与执行中的任务数；队列查询失败按 0 处理 |
 
 #### 7.3 创建解析任务
 

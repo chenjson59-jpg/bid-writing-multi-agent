@@ -346,6 +346,24 @@
 
 ---
 
+#### ADR-014：第一期应用不容器化，仅 Redis 以容器（compose 制品）运行
+
+- **状态**：已接受（第一期，T-024 部署材料审计后定稿）
+- **背景**：部署章标题曾写作「Docker + 单端口」，易被理解为应用整体容器化；实际仓库内没有应用 Dockerfile，只有 Redis 运行在容器中。需要把真实部署形态沉淀为明确决策与可版本化复现的制品，避免文档声称超出可验证能力。
+- **决策**：
+  - 应用（uvicorn API、Celery worker）不构建镜像，作为宿主机进程在 tmux 中运行，前端 `dist` 由 FastAPI 单端口挂载；
+  - 仅 Redis 容器化，并以 `deploy/docker-compose.redis.yml` 版本化（与手工 `docker run` 等价，产出同名容器与命名卷），强制密码、仅绑定 `127.0.0.1`、AOF 持久化；
+  - 第一期不接 Nginx（沿用 ADR-012），不引入 k8s、MinIO 等二期设施。
+- **不容器化应用的具体原因**：
+  1. Chroma 是进程内 `PersistentClient` 单例（`src/vectorstore/ingest.py`），uvicorn 与 worker 双进程（含 prefork 多子进程）同时写同一索引目录存在租户错误风险，容器化不会消除该风险，反而模糊卷与并发边界；
+  2. `upload/`、`chroma_db/`、`logs/` 都锚定仓库根本地卷，容器化需要额外处理卷映射与属主；
+  3. uvicorn 与 celery 是两个生命周期独立的进程，单镜像多入口或多镜像编排都会增加未验证面；
+  4. 一期定位单机开发/演示态，tmux 已满足 SSH 断开续跑；引入镜像构建链却没有 CI 实际构建验证，会违反「只描述可验证能力」的工程约束。
+- **备选**：完整应用容器化（多阶段 Dockerfile + compose 编排 api/worker/redis + 命名卷 + CI 镜像构建验证），留待出现多机部署或水平扩展需求的二期重新评估。
+- **后果**：部署依赖宿主机 Python 环境（uv 管理）与 tmux；Redis 容器拥有仓库内可复现制品；完整部署知识集中在 `docs/deployment.md`。
+
+---
+
 ### 6. 已定稿 ADR（第二期不实现，列为后续演进）
 
 | 编号 | 决策 | 状态 |
@@ -565,8 +583,7 @@ Python 依赖全部安装在项目 `.venv` 中；`uv run` 会自动使用该环�
 
 使用位置：
 
-- `src/extraction/llm_client.py`：统一客户端；
-- `src/extraction/extractor.py`：结构化抽取；
+- `src/extraction/extractor.py`：`DeepSeekModelCaller` 统一客户端与结构化抽取；
 - `src/bid_writer/agents.py`：策划、写作、评审、修订。
 
 注意事项：
@@ -765,7 +782,7 @@ Vite 配置要点：
 样式约定：
 
 - 不使用 `tailwind.config.js`；
-- 主题变量写在 `src/index.css` 的 `@theme` 中；
+- 主题变量写在 `frontend/src/index.css` 的 `@theme` 中；
 - 深色为默认主题；
 - 浅色主题通过 `html.light` 覆盖 Tailwind 颜色 token 实现；
 - 组件只使用语义化工具类，不逐组件写 `dark:` 变体；
