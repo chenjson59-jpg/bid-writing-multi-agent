@@ -564,6 +564,40 @@ uv run pytest -k "chunk or toc"
 校验（仅语法与变量插值，不起容器）；前端执行 `npm ci` 与 `npm run build`（tsc + vite）。
 Playwright 浏览器冒烟暂未纳入。
 
+### 前端测试（Vitest + Testing Library）
+
+前端测试在 `frontend/` 下运行，测试文件统一放 `frontend/tests/`，全程离线、不访问后端：
+
+```bash
+cd frontend
+npm test            # vitest run，一次性跑纯函数与组件测试
+npm run test:watch  # watch 模式
+npm run build       # tsc --noEmit 类型检查（含 tests/）+ vite 构建
+```
+
+- 纯函数测试（`*.test.ts`，如 `task_state`/`api`/`bid_quality`）不依赖 React，
+  与组件测试共用一套 Vitest 配置；只测 Node 能力（如 `node:fs` 读源码）的文件
+  在首行加 `// @vitest-environment node` 显式指定 node 环境（见 `electron_trust.test.ts`）。
+- 组件测试（`*.tsx`，范例 `tests/ui.test.tsx`）默认运行在 jsdom 环境：
+  用 `render`/`screen` 渲染与查询，断言用 `@testing-library/jest-dom` matcher
+  （`toBeInTheDocument`/`toBeDisabled` 等），交互用 `@testing-library/user-event`
+  触发真实事件序列，不直接调用组件 props 回调；查询优先 `getByRole`。
+- 测试沿用显式 `import { describe, it, expect } from 'vitest'` 风格（`globals: false`）；
+  `tests/setup.ts` 统一注册 jest-dom matcher，并在每个用例后自动 cleanup 卸载组件。
+
+jsdom 只提供 DOM API 子集、没有真实布局引擎，已知缺失能力与统一 mock
+（集中在 `frontend/tests/setup.ts`，不要在各用例里重复定义）：
+
+| 缺失 API | 处理方式 | 说明 |
+|---|---|---|
+| `Element.prototype.scrollIntoView` | 替换为空操作 mock | jsdom 仅输出 Not implemented 警告；`WritePage` 任务定位会调用，断言调用用 `vi.spyOn` |
+| `IntersectionObserver` | 最小构造器桩（observe/unobserve/disconnect/takeRecords） | 懒加载、可见性观察场景 |
+| `window.matchMedia` | 固定 `matches:false` 的 `MediaQueryList` 桩 | 响应式断点/暗色模式；需模拟断点变化时在用例内 `vi.spyOn` |
+
+jsdom 不能验证真实像素渲染、CSS 布局、滚动落点与 Electron 主进程行为，这些仍以手动
+验证为准；新增缺失 API 的 mock 统一补到 `tests/setup.ts` 并在本表登记。按 AGENTS.md
+第 4.3 节，未设覆盖率门禁前不安装任何 `@vitest/coverage-*` 覆盖率工具，也不宣称覆盖率数值。
+
 ## 当前限制
 
 - 工程量清单、图纸等以矢量线框为主的章节，本地解析几乎取不到正文；
