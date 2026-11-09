@@ -331,6 +331,7 @@ def run_bid_writer(
     from src.bid_writer.agents import default_caller, plan_sections
     from src.bid_writer.assembly import assemble_markdown, build_report
     from src.bid_writer.docx_export import markdown_to_docx
+    from src.bid_writer.facts import build_fact_ledger
     from src.bid_writer.graph import run_write_pipeline
     from src.bid_writer.profile_schema import infer_profile_schema
     from src.bid_writer.schema import PROFILE_FIELD_LABELS, BidderProfile, WriteOptions
@@ -341,6 +342,7 @@ def run_bid_writer(
     profile_obj = BidderProfile.from_dict(profile)
     write_options = WriteOptions.from_dict(options)
     tender = load_extraction(doc_id)
+    ledger = build_fact_ledger(tender)
 
     # ① 从抽取结果推断 schema（required/recommended/optional）
     #    后端 bid 任务自动拉 schema，不需要前端预先传——前端的 schema 只是用来控制表单显示
@@ -374,6 +376,7 @@ def run_bid_writer(
         max_concurrency=settings.bid_writer_max_concurrency,
         schema=schema,
         report=progress,
+        ledger=ledger,
     )
 
     now = datetime.now()
@@ -390,6 +393,7 @@ def run_bid_writer(
         tender, profile_obj, now,
         schema=schema,
         retrieval_degraded=retriever.degraded,
+        ledger=ledger,
     )
 
     output_dir = BIDS_DIR / f"{doc_id}-{now.strftime('%Y%m%d-%H%M%S')}"
@@ -402,6 +406,19 @@ def run_bid_writer(
         json.dumps([p.to_dict() for p in plans], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+    # 全局事实表落盘（T-029）：临时文件 + 原子替换，供人工审阅与后续版本复用
+    facts_payload = {
+        "version": 1,
+        "generated_at": now.isoformat(timespec="seconds"),
+        **ledger.to_dict(),
+    }
+    facts_path = output_dir / "facts.json"
+    facts_tmp = facts_path.with_name("facts.json.tmp")
+    facts_tmp.write_text(
+        json.dumps(facts_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    facts_tmp.replace(facts_path)
 
     # 章节正文独立落盘（P1-2）：编辑 / 重写 / 锁定都以此为事实来源
     from src.bid_writer.sections import write_sections

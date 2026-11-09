@@ -20,6 +20,7 @@ from typing import Any
 
 from src.bid_writer.assembly import assemble_markdown, build_report
 from src.bid_writer.docx_export import markdown_to_docx
+from src.bid_writer.facts import build_fact_ledger
 from src.bid_writer.schema import (
     BidderProfile,
     BidReport,
@@ -228,7 +229,11 @@ def rebuild_artifact(
     markdown = assemble_markdown(
         tender.project_name, company, drafts, now.strftime("%Y年%m月%d日")
     )
-    report = build_report(doc_id, tender.project_name, company, drafts, tender, profile, now)
+    ledger = build_fact_ledger(tender)
+    report = build_report(
+        doc_id, tender.project_name, company, drafts, tender, profile, now,
+        ledger=ledger,
+    )
 
     # 保留首次生成信息与本次运行无关的字段
     report.generated_at = str(report_data.get("generated_at") or report.generated_at)
@@ -329,6 +334,7 @@ def rewrite_sections(
     from src.bid_writer.usage import default_meter
 
     tender = load_extraction(str(report_data.get("doc_id") or ""))
+    ledger = build_fact_ledger(tender)
     profile = _load_profile(str(report_data.get("bidder") or ""))
     options = WriteOptions.from_dict(report_data.get("write_options") or {})
     retriever = _retriever(tender)
@@ -345,6 +351,7 @@ def rewrite_sections(
             min_score=options.min_score,
             max_revisions=options.max_revisions,
             caller=metered,
+            ledger=ledger,
         )
         _write_body(bid_dir, entry, draft.markdown)
         entry.update(

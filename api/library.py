@@ -32,7 +32,7 @@ _DOC_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 _BID_ID_RE = re.compile(r"^[0-9a-f]{16}-\d{8}-\d{6}$")
 _MAX_DOCUMENTS = 200
 _MAX_BIDS = 100
-_ALLOWED_BID_FILES = {"bid.md", "bid.docx", "report.json", "outline.json"}
+_ALLOWED_BID_FILES = {"bid.md", "bid.docx", "report.json", "outline.json", "facts.json"}
 _MEDIA_TYPES = {
     ".md": "text/markdown",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

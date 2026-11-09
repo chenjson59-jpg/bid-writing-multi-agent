@@ -337,13 +337,19 @@ def section_agent(
     max_revisions: int,
     caller: ModelCaller,
     schema: dict | None = None,
+    ledger=None,
 ) -> SectionDraft:
-    """单个章节的写作—评审—修订循环（8.2.1）。schema 透传给 prompt builder。"""
+    """单个章节的写作—评审—修订循环（8.2.1）。
+
+    schema 透传给 prompt builder；ledger 为 FactLedger 时启用事实口径校验，
+    为 None 时跳过（T-029）。
+    """
     if plan.strategy == STRATEGY_PLACEHOLDER:
         markdown = placeholder_section(plan)
         review = ReviewResult(score=100)
         rule_check = check_section_rules(
-            markdown, plan, retrieved, doc_id=getattr(tender, "doc_id", "")
+            markdown, plan, retrieved, doc_id=getattr(tender, "doc_id", ""),
+            ledger=ledger,
         )
         return SectionDraft(
             plan=plan,
@@ -372,7 +378,8 @@ def section_agent(
             best_draft, best_review = revised, revised_review
 
     rule_check = check_section_rules(
-        best_draft, plan, retrieved, doc_id=getattr(tender, "doc_id", "")
+        best_draft, plan, retrieved, doc_id=getattr(tender, "doc_id", ""),
+        ledger=ledger,
     )
     return SectionDraft(
         plan=plan,

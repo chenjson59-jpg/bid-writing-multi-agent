@@ -599,3 +599,112 @@ def test_max_revisions_zero_skips_reviser():
     assert draft.revisions == 0
     assert len(caller.messages) == 2  # 仅 Writer + Reviewer
     assert draft.markdown == "初稿"
+
+
+# ---- T-029 事实表端到端透传与汇总 ----
+
+from src.bid_writer.facts import build_fact_ledger
+from src.bid_writer.graph import run_write_pipeline
+from src.bid_writer.rules import FACT_MISMATCH as RULE_FACT_MISMATCH
+from src.bid_writer.schema import WriteOptions
+
+
+def _duration_tender() -> TenderDocument:
+    return make_tender(contract_highlights=["计划工期 180 日历天。"])
+
+
+def _high_score_caller(body: str) -> ScriptCaller:
+    # writer 正文 + reviewer 高分（90 ≥ 75，不进入修订循环）
+    return ScriptCaller(
+        [
+            (False, body),
+            (True, '{"score": 90, "covered_points": [], "issues": [], "suggestions": [], "placeholder_count": 0}'),
+        ]
+    )
+
+
+def test_section_agent_flags_fact_mismatch_with_ledger():
+    tender = _duration_tender()
+    ledger = build_fact_ledger(tender)
+    plan = SectionPlan(id="section_1", title="施工组织设计", order=1, strategy="generate")
+
+    draft = section_agent(
+        plan, tender, BidderProfile(), [],
+        min_score=75, max_revisions=1,
+        caller=_high_score_caller("本章承诺工期 200 日历天完工。"),
+        ledger=ledger,
+    )
+
+    codes = [e["code"] for e in draft.rule_check.errors]
+    assert RULE_FACT_MISMATCH in codes
+    assert draft.rule_check.passed is False
+
+
+def test_section_agent_without_ledger_keeps_legacy_behavior():
+    tender = _duration_tender()
+    plan = SectionPlan(id="section_1", title="施工组织设计", order=1, strategy="generate")
+
+    draft = section_agent(
+        plan, tender, BidderProfile(), [],
+        min_score=75, max_revisions=1,
+        caller=_high_score_caller("本章承诺工期 200 日历天完工。"),
+    )
+    assert all(e["code"] != RULE_FACT_MISMATCH for e in draft.rule_check.errors)
+
+
+def test_run_write_pipeline_propagates_ledger():
+    tender = _duration_tender()
+    ledger = build_fact_ledger(tender)
+    plan = SectionPlan(id="section_1", title="施工组织设计", order=1, strategy="generate")
+    options = WriteOptions()
+
+    drafts = run_write_pipeline(
+        [plan], tender, BidderProfile(), options,
+        retrieve=lambda _q, _k: [],
+        caller=_high_score_caller("工期 200 日历天。"),
+        max_concurrency=1,
+        ledger=ledger,
+    )
+    codes = [e["code"] for e in drafts[0].rule_check.errors]
+    assert RULE_FACT_MISMATCH in codes
+
+
+def test_build_report_fact_check_summary_aggregates():
+    tender = _duration_tender()
+    ledger = build_fact_ledger(tender)
+    plan = SectionPlan(id="section_1", title="施工组织设计", order=1, strategy="generate")
+    draft = section_agent(
+        plan, tender, BidderProfile(), [],
+        min_score=75, max_revisions=1,
+        caller=_high_score_caller("工期 200 日历天。"),
+        ledger=ledger,
+    )
+
+    report = assembly.build_report(
+        "doc1", tender.project_name, "公司", [draft], tender,
+        BidderProfile(), datetime(2026, 11, 9), ledger=ledger,
+    )
+    summary = report.fact_check_summary
+    # make_tender 自带 project_name/tender_no，加上工期共 3 条事实
+    assert summary["total_facts"] == 3
+    assert summary["facts_by_type"]["duration"] == 1
+    assert summary["mismatch_count"] == 1
+    assert summary["ledger_source"] == "deterministic_v1"
+    assert report.summary()["fact_check_summary"] == summary
+
+
+def test_build_report_without_ledger_has_empty_summary():
+    tender = make_tender()
+    plan = SectionPlan(id="section_1", title="投标函", order=1, strategy="placeholder")
+    draft = section_agent(
+        plan, tender, BidderProfile(), [],
+        min_score=75, max_revisions=0, caller=ScriptCaller([]),
+    )
+    report = assembly.build_report(
+        "doc1", tender.project_name, "公司", [draft], tender,
+        BidderProfile(), datetime(2026, 11, 9),
+    )
+    assert report.fact_check_summary == {}
+    # 旧产物兼容：序列化与 summary 均带稳定键，值为空字典
+    assert report.to_dict()["fact_check_summary"] == {}
+    assert report.summary()["fact_check_summary"] == {}

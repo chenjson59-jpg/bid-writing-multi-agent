@@ -139,11 +139,12 @@ chroma_db/                   # 本地向量库
   不保留孤儿向量；向量库故障时接口返回 503 且文件保留，可安全重试。
 - **评审与规则检查分离**：LLM Reviewer 只给语义评分；引用越界、无检索却引用、
   片段 doc_id 不匹配、具体报价/让利等客观项由零模型调用的确定性规则检查器判定
-  （`CITE_*`/`QUOTE_FORBIDDEN` 规则码），结果独立写入 `report.json` 的
+  （`CITE_*`/`QUOTE_FORBIDDEN`/`FACT_MISMATCH` 规则码），结果独立写入 `report.json` 的
   `rule_checks`，不与语义评审混在一起。
 - **三层覆盖漏斗**：评分覆盖区分计划覆盖（因素分配给章节）、正文覆盖（非占位章节
   正文实际响应）、证据覆盖（同 doc_id 片段 + 合法引用），三层结果与逐层缺口写入
   `report.json` 的 `evaluation_coverage` 与 `coverage_summary`，全部确定性可复算。
+- **全局事实表与口径校验（T-029）**：写作前从抽取结果确定性构建事实表（工期、保证金、有效期、预算、项目名称与编号，见 `src/bid_writer/facts.py`），随产物输出 `facts.json`；正文与事实表口径冲突时以 `FACT_MISMATCH` 规则码标记，零模型调用、可离线复算，月/天与工作日/自然日等含业务假设的换算不做自动判定。
 - **检索降级显式标记**：集合缺失、Embedding 失败或查询异常时检索器置
   `degraded=True` 并透传到 `report.json` 的 `retrieval_degraded`，前端结果页红色
   提示「本次生成无原文依据」；抽取阶段原文核实失败的字段进入
@@ -211,7 +212,7 @@ uv run python -m api
 | GET | `/api/bids/{bid_id}/sections/{section_id}/file` | 导出单章 Markdown（附件下载） |
 | POST | `/api/bids/{bid_id}/sections/rewrite` | 重写指定章节（`section_ids` 为空表示全部未锁定章节），返回 **202** |
 | GET | `/api/documents/{doc_id}/markdown` | 预览解析后的 `content.md` |
-| GET | `/api/bids/{bid_id}/files/{name}` | 预览/下载 `bid.md`、`bid.docx`、`report.json`、`outline.json`；`download=1` 触发附件下载 |
+| GET | `/api/bids/{bid_id}/files/{name}` | 预览/下载 `bid.md`、`bid.docx`、`report.json`、`outline.json`、`facts.json`；`download=1` 触发附件下载 |
 | GET | `/api/tasks` | 任务历史（解析 + 编写，读数据库；库不可用返回空） |
 | GET | `/api/profiles` | 投标人资料列表（读数据库） |
 | POST | `/api/profiles` | 新建资料，公司名已存在时覆盖最近一条 |

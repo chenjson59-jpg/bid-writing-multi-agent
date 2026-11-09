@@ -183,3 +183,171 @@ def test_to_dict_is_json_friendly():
     assert data["errors"][0]["code"] == CITE_EMPTY
     assert isinstance(data["citation_markers"], list)
     assert isinstance(data["placeholders"], list)
+
+
+# ---- 事实口径一致性（T-029 FACT_MISMATCH）----
+
+from src.bid_writer.facts import (
+    FACT_BUDGET,
+    FACT_DEPOSIT,
+    FACT_DURATION,
+    FACT_PROJECT_NAME,
+    FACT_VALIDITY,
+    Fact,
+    FactLedger,
+    build_fact_ledger,
+)
+from src.bid_writer.rules import FACT_MISMATCH, check_fact_consistency
+
+
+def _fact(fact_type: str, value: str, unit: str = "", label: str = "x") -> Fact:
+    return Fact(
+        fact_type=fact_type, label=label, value=value, unit=unit,
+        raw_text=label, source="test", confidence=1.0,
+    )
+
+
+def test_ledger_none_skips_fact_check():
+    result = check_section_rules("工期 200 天。", _plan(), [], doc_id=DOC_ID)
+    assert result.passed is True
+    assert FACT_MISMATCH not in _error_codes(result)
+
+
+def test_empty_ledger_skips_fact_check():
+    result = check_section_rules(
+        "工期 200 天。", _plan(), [], doc_id=DOC_ID, ledger=FactLedger()
+    )
+    assert result.passed is True
+
+
+def test_matching_duration_passes():
+    ledger = FactLedger(facts=[_fact(FACT_DURATION, "180", "天", label="工期")])
+    result = check_section_rules(
+        "计划工期 180 日历天，满足招标要求。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert result.passed is True
+    assert FACT_MISMATCH not in _error_codes(result)
+
+
+def test_conflicting_duration_is_mismatch():
+    ledger = FactLedger(facts=[_fact(FACT_DURATION, "180", "天", label="工期")])
+    result = check_section_rules(
+        "本项目工期 200 日历天。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH in _error_codes(result)
+    assert result.passed is False
+    message = next(e["message"] for e in result.errors if e["code"] == FACT_MISMATCH)
+    assert "200" in message and "180" in message
+
+
+def test_cross_unit_duration_not_judged():
+    # 事实表为月、正文为天：含业务假设的换算不做，跳过不判错
+    ledger = FactLedger(facts=[_fact(FACT_DURATION, "6", "月", label="服务期限")])
+    result = check_section_rules(
+        "服务期 180 天。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH not in _error_codes(result)
+
+
+def test_amount_wanyuan_and_yuan_normalized():
+    ledger = FactLedger(facts=[_fact(FACT_DEPOSIT, "50000.00", "元", label="投标保证金")])
+    ok = check_section_rules(
+        "投标保证金 5 万元，已按要求缴纳。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    # 金额归一后等值：无 FACT_MISMATCH（QUOTE_FORBIDDEN 是另一条规则，不在本用例断言范围）
+    assert FACT_MISMATCH not in _error_codes(ok)
+
+    bad = check_section_rules(
+        "投标保证金 6 万元。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH in _error_codes(bad)
+
+
+def test_placeholder_window_skips_fact_check():
+    ledger = FactLedger(facts=[_fact(FACT_DURATION, "180", "天", label="工期")])
+    result = check_section_rules(
+        "工期：【待填写：工期】日历天，待人工补充。",
+        _plan(), [], doc_id=DOC_ID, ledger=ledger,
+    )
+    assert FACT_MISMATCH not in _error_codes(result)
+
+
+def test_project_name_mismatch_and_short_name_alias():
+    ledger = FactLedger(facts=[_fact(FACT_PROJECT_NAME, "智慧校园建设项目", label="项目名称")])
+
+    # 括号注释被截断后与事实等值；真子串简称（7/9 长度、互为子串）容忍通过
+    alias = check_section_rules(
+        "项目名称：智慧校园建设项目（以下简称本项目）。",
+        _plan(), [], doc_id=DOC_ID, ledger=ledger,
+    )
+    assert FACT_MISMATCH not in _error_codes(alias)
+    short = check_section_rules(
+        "项目名称：校园建设项目。",
+        _plan(), [], doc_id=DOC_ID, ledger=ledger,
+    )
+    assert FACT_MISMATCH not in _error_codes(short)
+
+    wrong = check_section_rules(
+        "项目名称：智慧城市管理平台。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH in _error_codes(wrong)
+
+
+def test_unknown_fact_type_in_text_not_judged():
+    # 事实表只有工期，正文出现的保证金数字没有对应事实 → 不判错
+    ledger = FactLedger(facts=[_fact(FACT_DURATION, "180", "天", label="工期")])
+    result = check_section_rules(
+        "投标保证金 5 万元。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH not in _error_codes(result)
+
+
+def test_any_matching_fact_among_conflicts_passes():
+    ledger = FactLedger(
+        facts=[
+            _fact(FACT_DURATION, "180", "天", label="工期"),
+            _fact(FACT_DURATION, "200", "天", label="工期"),
+        ]
+    )
+    result = check_section_rules(
+        "工期 200 天。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH not in _error_codes(result)
+
+
+def test_check_fact_consistency_with_built_ledger():
+    tender = type(
+        "T",
+        (),
+        {
+            "project_name": "智慧校园建设项目",
+            "tender_no": "",
+            "budget_amount": "",
+            "contract_highlights": ["计划工期 180 日历天。"],
+            "technical_requirements": [],
+            "service_requirements": [],
+            "preliminary_review": [],
+            "qualifications": [],
+        },
+    )()
+    ledger = build_fact_ledger(tender)
+    errors = check_fact_consistency("正文承诺工期 200 天完工。", ledger)
+    assert [e["code"] for e in errors] == [FACT_MISMATCH]
+    assert check_fact_consistency("正文承诺工期 180 日历天。", ledger) == []
+
+
+def test_validity_conflict_reported():
+    ledger = FactLedger(facts=[_fact(FACT_VALIDITY, "90", "天", label="投标有效期")])
+    result = check_section_rules(
+        "投标有效期为 60 天。", _plan(), [], doc_id=DOC_ID, ledger=ledger
+    )
+    assert FACT_MISMATCH in _error_codes(result)
+
+
+def test_budget_fact_used():
+    ledger = FactLedger(facts=[_fact(FACT_BUDGET, "1205000.00", "元", label="最高限价")])
+    result = check_section_rules(
+        "本项目最高限价 100 万元，投标报价不得超限价。",
+        _plan(), [], doc_id=DOC_ID, ledger=ledger,
+    )
+    assert FACT_MISMATCH in _error_codes(result)
