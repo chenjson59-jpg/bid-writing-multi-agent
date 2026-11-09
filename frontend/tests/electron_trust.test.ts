@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * T-019 Electron HTTP 下载可信 origin 白名单测试。
  * 纯 node 环境：只测 electron/trust.cjs 的纯函数与 main.cjs 的源码级安全守卫，
