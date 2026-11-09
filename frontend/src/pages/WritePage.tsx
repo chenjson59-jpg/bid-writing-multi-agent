@@ -586,7 +586,15 @@ export function WritePage({
               </div>
             </Card>
           )}
-          {localJob?.status === 'succeeded' && localJob.bid && <ResultView bid={localJob.bid} />}
+          {localJob?.status === 'succeeded' && localJob.bid && (
+            <div className="space-y-4">
+              <ResultView bid={localJob.bid} />
+              {/* T-030：终态结果持续留存，显式复位才回表单（grace 自动清理已移除） */}
+              <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                再写一份
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     )

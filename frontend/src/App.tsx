@@ -5,13 +5,13 @@ import { LibraryPage } from './pages/LibraryPage'
 import { UploadPage } from './pages/UploadPage'
 import { WritePage } from './pages/WritePage'
 import {
+  decidePollOutcome,
   isRunning,
-  isTerminal,
   jobEquals,
   kindLabel,
+  nextHistoryRefreshNonce,
   planJobJump,
   statusLabel,
-  TERMINAL_GRACE_MS,
   type JobKind,
   type Tab,
 } from './lib/task_state'
@@ -141,14 +141,20 @@ export default function App() {
   })
   // 「查看」聚焦信号：每次点击自增，页面 effect 据此滚动/高亮任务卡片
   const [focusNonces, setFocusNonces] = useState<Record<JobKind, number>>({ parse: 0, bid: 0 })
+  // T-030：终态事件驱动的历史页刷新信号，仅在非终态→终态迁移时自增（无任务不空转）
+  const [historyRefreshNonce, setHistoryRefreshNonce] = useState(0)
+  // poller 上一次观测值，用于终态迁移判定；放 ref 而非 setState updater，避免 StrictMode 双调用
+  const pollPrevRef = useRef<Record<JobKind, JobView | null>>({ parse: null, bid: null })
 
   // 注册一个新的活跃任务（页面触发任务后调这个）
   const registerJob = useCallback((kind: JobKind, jobId: string | null) => {
     activeJobIdRef.current[kind] = jobId
+    // T-030：复位迁移观测，保证新任务的终态迁移一定能被识别
+    pollPrevRef.current[kind] = null
     // 选择态立即置位：首帧 poll 未返回时页面也能展示「提交中」
     setSelectedJobIds((prev) => ({ ...prev, [kind]: jobId }))
     if (!jobId) {
-      // 取消/出错/返回修改参数：立即清掉活跃任务与选择态，页面回表单
+      // 取消/出错/返回修改参数/显式复位：立即清掉活跃任务与选择态，页面回表单
       setActiveJobs((prev) => ({ ...prev, [kind]: null }))
     }
   }, [])
@@ -162,21 +168,20 @@ export default function App() {
         if (!jobId) continue
         try {
           const job = await getJob(jobId)
+          // T-030：终态即停轮询、快照留存；仅在非终态→终态迁移时通知历史页刷新
+          const outcome = decidePollOutcome(pollPrevRef.current[kind], job)
+          pollPrevRef.current[kind] = job
           setActiveJobs((prev) => {
             if (jobEquals(prev[kind], job)) return prev
             return { ...prev, [kind]: job }
           })
-          // 任务终态：再保留 TERMINAL_GRACE_MS 让用户看到完成，然后自动清理
-          if (isTerminal(job)) {
-            window.setTimeout(() => {
-              // 只有当前还指向这个 jobId 才清（防止用户在 grace 内又提交新任务）
-              if (activeJobIdRef.current[kind] === jobId) {
-                activeJobIdRef.current[kind] = null
-                setActiveJobs((prev) => ({ ...prev, [kind]: null }))
-                // T-031：grace 清理后受控选择态同步清空，页面安全回退表单态
-                setSelectedJobIds((prev) => ({ ...prev, [kind]: null }))
-              }
-            }, TERMINAL_GRACE_MS)
+          if (outcome.stopPolling) {
+            // 终态后不再请求该 job；activeJobs/selectedJobIds 保留，清理只允许来自
+            // registerJob(kind, null) 的用户显式复位，定时器不得再改变页面状态
+            activeJobIdRef.current[kind] = null
+          }
+          if (outcome.terminalTransition) {
+            setHistoryRefreshNonce((n) => nextHistoryRefreshNonce(n, true))
           }
         } catch {
           // poll 失败（网络抖动）静默跳过，等下一轮
@@ -352,7 +357,9 @@ export default function App() {
             onWritten={refreshCounts}
           />
         )}
-        {tab === 'history' && <HistoryPage onChanged={refreshCounts} />}
+        {tab === 'history' && (
+          <HistoryPage onChanged={refreshCounts} refreshNonce={historyRefreshNonce} />
+        )}
       </main>
 
       <GlobalTaskBar parseJob={activeJobs.parse} bidJob={activeJobs.bid} onJumpTo={jumpToJob} />
