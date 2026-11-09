@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import type { JobView } from '../src/types'
 import {
   TERMINAL_GRACE_MS,
+  derivePageJobState,
   filterRunning,
   hasRunning,
   isRunning,
@@ -16,6 +17,7 @@ import {
   kindLabel,
   kindTab,
   pickJobForKind,
+  planJobJump,
   statusLabel,
   terminalOutcome,
 } from '../src/lib/task_state'
@@ -130,6 +132,7 @@ describe('kindTab', () => {
   it('bid → write', () => expect(kindTab('bid')).toBe('write'))
   it('rewrite → write（章节重写也跳编写页）', () => expect(kindTab('rewrite')).toBe('write'))
   it('supplement → write', () => expect(kindTab('supplement')).toBe('write'))
+  it('未知 kind → 兜底 write（非 parse 一律跳编写页）', () => expect(kindTab('whatever-new-kind')).toBe('write'))
 })
 
 // ============================================================
@@ -241,5 +244,63 @@ describe('pickJobForKind', () => {
 describe('TERMINAL_GRACE_MS', () => {
   it('8 秒 → 任务终态后 App 还会保留这么久让用户看到完成提示', () => {
     expect(TERMINAL_GRACE_MS).toBe(8_000)
+  })
+})
+
+// ============================================================
+// derivePageJobState：受控选择态 + activeJob 的三态派生（T-031）
+// ============================================================
+
+describe('derivePageJobState', () => {
+  const job = mkJob({ job_id: 'job-a', kind: 'bid', status: 'running' })
+
+  it('未选择任务 → form（无论 activeJob 是否存在）', () => {
+    expect(derivePageJobState(null, null)).toEqual({ mode: 'form' })
+    expect(derivePageJobState(null, job)).toEqual({ mode: 'form' })
+  })
+
+  it('已选择但首帧 poll 未返回（activeJob 为 null）→ submitting，保留 jobId', () => {
+    expect(derivePageJobState('job-a', null)).toEqual({ mode: 'submitting', jobId: 'job-a' })
+  })
+
+  it('job_id 匹配 → job，返回同一个 activeJob 引用', () => {
+    expect(derivePageJobState('job-a', job)).toEqual({ mode: 'job', job })
+  })
+
+  it('activeJob 属于旧任务（id 不匹配）→ submitting，绝不返回旧 job 数据', () => {
+    const stale = mkJob({ job_id: 'job-old', status: 'succeeded' })
+    expect(derivePageJobState('job-a', stale)).toEqual({ mode: 'submitting', jobId: 'job-a' })
+  })
+})
+
+// ============================================================
+// planJobJump：「查看」按钮跳转决策（T-031）
+// ============================================================
+
+describe('planJobJump', () => {
+  it('parse 且当前就在 upload tab → 目标 upload，不切 tab（走原地聚焦）', () => {
+    expect(planJobJump('parse', 'upload')).toEqual({ tab: 'upload', changedTab: false })
+  })
+
+  it('parse 且当前在 write tab → 切到 upload', () => {
+    expect(planJobJump('parse', 'write')).toEqual({ tab: 'upload', changedTab: true })
+  })
+
+  it('bid 在 upload tab → 切到 write', () => {
+    expect(planJobJump('bid', 'upload')).toEqual({ tab: 'write', changedTab: true })
+  })
+
+  it('supplement / rewrite 在 upload tab → write（锁定现有去向）', () => {
+    expect(planJobJump('supplement', 'upload')).toEqual({ tab: 'write', changedTab: true })
+    expect(planJobJump('rewrite', 'upload')).toEqual({ tab: 'write', changedTab: true })
+  })
+
+  it('bid 已在 write tab → 不切 tab，原地聚焦', () => {
+    expect(planJobJump('bid', 'write')).toEqual({ tab: 'write', changedTab: false })
+  })
+
+  it('history/library 等非目标 tab 点击查看 → 必然发生 tab 切换', () => {
+    expect(planJobJump('parse', 'history')).toEqual({ tab: 'upload', changedTab: true })
+    expect(planJobJump('bid', 'library')).toEqual({ tab: 'write', changedTab: true })
   })
 })

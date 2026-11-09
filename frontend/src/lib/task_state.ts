@@ -56,6 +56,41 @@ export function kindTab(kind: string): Tab {
   return 'write'
 }
 
+// ---------- 页面任务视图的受控派生（T-031：选择态上移 App 后，页面只做派生） ----------
+
+/** 页面任务视图三态：表单 / 已提交待首帧 / 展示 job。 */
+export type PageJobState =
+  | { mode: 'form' }
+  | { mode: 'submitting'; jobId: string }
+  | { mode: 'job'; job: JobView }
+
+/**
+ * 由 App 受控选择态与 poll 回来的 activeJob 派生页面任务视图。
+ * - 未选择 → 表单；
+ * - 已选择但 activeJob 缺失或 job_id 不匹配（首帧未返回 / 旧 job 残留）→ submitting，
+ *   绝不渲染 id 不匹配的旧 job，防止任务串台；
+ * - id 匹配 → 展示该 job。
+ */
+export function derivePageJobState(
+  selectedJobId: string | null,
+  activeJob: JobView | null,
+): PageJobState {
+  if (!selectedJobId) return { mode: 'form' }
+  if (activeJob && activeJob.job_id === selectedJobId) return { mode: 'job', job: activeJob }
+  return { mode: 'submitting', jobId: selectedJobId }
+}
+
+/** 「查看」按钮跳转决策：切 tab 还是原地聚焦。 */
+export interface JobJumpDecision {
+  tab: Tab
+  changedTab: boolean
+}
+
+export function planJobJump(kind: string, currentTab: Tab): JobJumpDecision {
+  const tab = kindTab(kind)
+  return { tab, changedTab: tab !== currentTab }
+}
+
 /** 终态成功后，App poller 还会保留这么多毫秒让用户看到完成提示再清理。 */
 export const TERMINAL_GRACE_MS = 8_000
 

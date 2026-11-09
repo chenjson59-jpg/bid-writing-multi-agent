@@ -520,8 +520,10 @@ npm run build      # tsc --noEmit + vite build，产物在 frontend/dist
   `ELECTRON_TRUSTED_ORIGINS`（逗号分隔，与构建期 `VITE_API_BASE` 同源），
   非可信地址在下载前直接拒绝；`contextIsolation=true`、`nodeIntegration=false` 保持不变。
 - 构建后可用 `ELECTRON_LOAD_DIST=1 npm run electron` 验证 `file://` 加载与 IPC。
-- 切换导航不会中断后台任务：解析/编写任务 ID 会写入 `localStorage`，
-  页面刷新后可继续轮询（Celery 结果保留 24 小时）。
+- 切换导航（tab）不会中断后台任务，任务进度视图可自动恢复（T-031）：活跃任务与当前
+  选中任务由 App 组件统一持有并轮询，页面随 tab 卸载/重挂不丢失状态；底部任务栏
+  「查看」可跳回对应任务并滚动定位。任务态为内存态，整页刷新会重置（终态结果持久
+  留存属后续任务），Celery 结果后端仍保留 24 小时。
 - 右上角可切换深色/浅色主题（默认深色），选择保存在 `localStorage`，
   刷新或重启后保持。
 
