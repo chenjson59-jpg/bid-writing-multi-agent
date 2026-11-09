@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   cancelJob,
   deleteBid,
@@ -40,7 +40,14 @@ function taskDetail(task: TaskHistoryItem): string {
   return parts.join(' · ')
 }
 
-export function HistoryPage({ onChanged }: { onChanged?: () => void }) {
+export function HistoryPage({
+  onChanged,
+  refreshNonce = 0,
+}: {
+  onChanged?: () => void
+  /** T-030：App 观测到任务终态迁移时自增；变化才触发 reload，挂载首载不重复请求 */
+  refreshNonce?: number
+}) {
   const [view, setView] = useState<'bids' | 'tasks'>('bids')
   const [items, setItems] = useState<BidHistoryItem[]>([])
   const [tasks, setTasks] = useState<TaskHistoryItem[]>([])
@@ -68,6 +75,16 @@ export function HistoryPage({ onChanged }: { onChanged?: () => void }) {
   useEffect(() => {
     load()
   }, [])
+
+  // T-030：App 终态事件驱动的自动刷新。无 interval/setTimeout，无活跃任务时零请求（不空转）；
+  // 未挂载期间错过的 nonce 无需补偿，挂载首载 load() 即拿到最新列表。
+  const prevNonceRef = useRef(refreshNonce)
+  useEffect(() => {
+    if (prevNonceRef.current !== refreshNonce) {
+      prevNonceRef.current = refreshNonce
+      void load()
+    }
+  }, [refreshNonce])
 
   async function removeBid(bidId: string) {
     if (!window.confirm(`确认删除产物 ${bidId}？目录会连同 Word 与报告一起删除。`)) return

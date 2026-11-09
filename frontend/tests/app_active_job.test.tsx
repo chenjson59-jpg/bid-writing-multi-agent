@@ -3,7 +3,7 @@
  *
  * 约定：
  * - vi.mock 接管整个 api 模块，全部夹具离线返回，禁止真实网络；
- * - vi.useFakeTimers + advanceTimersByTimeAsync 驱动 1.5s 轮询与 8s grace，禁止真实 sleep；
+ * - vi.useFakeTimers + advanceTimersByTimeAsync 驱动 1.5s 轮询，禁止真实 sleep；
  * - 交互统一用 fireEvent 派发真实 DOM 事件（不直接调 props 回调）：user-event v14 的
  *   click/upload 内部会排期 setTimeout，与 vi.useFakeTimers 存在死等，T-035 的
  *   user-event 写法保留给无假定时器的用例（见 ui.test.tsx）。
@@ -170,7 +170,7 @@ describe('T-031 App 活跃任务状态上移（解析任务链路）', () => {
     scrollSpy.mockRestore()
   })
 
-  it('终态 8s grace 清理后回退表单态，不白屏不报错', async () => {
+  it('T-030：终态后推进超过 8s 任务/结果视图保留，不再自动回退表单（grace 已移除）', async () => {
     vi.mocked(api.getJob).mockResolvedValue(
       mkJob({
         job_id: 'job-parse-1',
@@ -188,16 +188,16 @@ describe('T-031 App 活跃任务状态上移（解析任务链路）', () => {
       }),
     )
     await startParseJob()
-    // 终态后底部任务栏消失（filterRunning 不含终态）
+    // 终态后底部任务栏消失（filterRunning 不含终态），结果卡出现
     expect(screen.queryByRole('button', { name: '查看' })).toBeNull()
     expect(screen.getByText('解析结果')).toBeInTheDocument()
 
-    // 推进超过 8s grace，App 清空 activeJob 与受控选择态
+    // 旧实现此时 8s grace 到期会清空 activeJob 与选择态；T-030 起终态留存、即停轮询
     await advance(8100)
 
-    expect(screen.queryByText('任务进度')).toBeNull()
-    expect(screen.queryByText('解析结果')).toBeNull()
-    expect(document.querySelector('input[type="file"]')).toBeTruthy()
+    expect(screen.getByText('任务进度')).toBeInTheDocument()
+    expect(screen.getByText('解析结果')).toBeInTheDocument()
+    expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 })
 

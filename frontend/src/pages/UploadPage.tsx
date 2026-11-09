@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { describeError, uploadParse } from '../api'
-import { derivePageJobState } from '../lib/task_state'
+import { derivePageJobState, shouldEmitJobSuccess } from '../lib/task_state'
 import type { JobView } from '../types'
 import { Banner, Button, Card, EmptyState, Field, ProgressBar, Spinner } from '../ui'
 
@@ -47,16 +47,16 @@ export function UploadPage({
   const job = view.mode === 'job' ? view.job : null
   const done = !!job && job.status === 'succeeded'
 
-  // 任务成功时刷新文档列表计数（任务完成后页面可能已经切走）
-  const fireRef = useRef(false)
+  // 任务成功时刷新文档列表计数（任务完成后页面可能已经切走）。
+  // T-030：按 jobId 记账，复位后新任务成功可再次触发；旧布尔闩锁会吞掉第二次成功回调。
+  const firedJobRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!activeJob || !selectedJobId) return
-    if (activeJob.job_id !== selectedJobId) return
-    if (activeJob.status === 'succeeded' && !fireRef.current) {
-      fireRef.current = true
+    const jobId = activeJob?.job_id ?? null
+    if (shouldEmitJobSuccess(activeJob, selectedJobId, firedJobRef.current) && jobId) {
+      firedJobRef.current = jobId
       onUploaded()
     }
-  }, [activeJob?.status, activeJob?.job_id, selectedJobId, onUploaded])
+  }, [activeJob, selectedJobId, onUploaded])
 
   // 「查看」反馈：滚动到任务卡片并短暂高亮（同 tab 点击也有明确反馈）
   useEffect(() => {
@@ -226,6 +226,13 @@ export function UploadPage({
                   </ul>
                 )}
                 {job.error && <Banner kind="error">{job.error}</Banner>}
+                {job.status === 'failed' && (
+                  <div className="mt-3">
+                    <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                      重新上传
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <Spinner />
@@ -250,12 +257,15 @@ export function UploadPage({
                   入库摘要：新增 {job.ingest.added ?? '-'} 片段
                 </p>
               )}
-              <div className="mt-4">
+              <div className="mt-4 flex flex-wrap gap-2">
                 {extract ? (
                   <Button onClick={() => onWrite(job.result!.doc_id)}>去编写标书</Button>
                 ) : (
                   <p className="text-sm text-amber-400">未开启结构化抽取，无法编写标书。</p>
                 )}
+                <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                  再上传一个
+                </Button>
               </div>
             </Card>
           )}

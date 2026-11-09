@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobView } from '../src/types'
 import {
-  TERMINAL_GRACE_MS,
+  decidePollOutcome,
   derivePageJobState,
   filterRunning,
   hasRunning,
@@ -16,8 +16,10 @@ import {
   jobEquals,
   kindLabel,
   kindTab,
+  nextHistoryRefreshNonce,
   pickJobForKind,
   planJobJump,
+  shouldEmitJobSuccess,
   statusLabel,
   terminalOutcome,
 } from '../src/lib/task_state'
@@ -238,12 +240,111 @@ describe('pickJobForKind', () => {
 })
 
 // ============================================================
-// TERMINAL_GRACE_MS 常量
+// decidePollOutcome：终态轮询决策（T-030：终态即停、迁移信号、结果留存）
 // ============================================================
 
-describe('TERMINAL_GRACE_MS', () => {
-  it('8 秒 → 任务终态后 App 还会保留这么久让用户看到完成提示', () => {
-    expect(TERMINAL_GRACE_MS).toBe(8_000)
+describe('decidePollOutcome', () => {
+  it('运行中观测：不停止轮询、不产生终态迁移', () => {
+    const prev = mkJob({ job_id: 'j1', status: 'running' })
+    const next = mkJob({ job_id: 'j1', status: 'running', progress: ['a', 'b'] })
+    expect(decidePollOutcome(prev, next)).toEqual({
+      stopPolling: false,
+      terminalTransition: false,
+    })
+  })
+
+  it('running → succeeded：停止轮询并报告终态迁移', () => {
+    const prev = mkJob({ job_id: 'j1', status: 'running' })
+    const next = mkJob({ job_id: 'j1', status: 'succeeded' })
+    expect(decidePollOutcome(prev, next)).toEqual({
+      stopPolling: true,
+      terminalTransition: true,
+    })
+  })
+
+  it('pending → failed：停止轮询并报告终态迁移', () => {
+    const prev = mkJob({ job_id: 'j1', status: 'pending' })
+    const next = mkJob({ job_id: 'j1', status: 'failed' })
+    expect(decidePollOutcome(prev, next)).toEqual({
+      stopPolling: true,
+      terminalTransition: true,
+    })
+  })
+
+  it('首帧即终态（prev 为 null）：停止轮询，且视为一次迁移（快速完成任务）', () => {
+    const next = mkJob({ job_id: 'j1', status: 'succeeded' })
+    expect(decidePollOutcome(null, next)).toEqual({
+      stopPolling: true,
+      terminalTransition: true,
+    })
+  })
+
+  it('prev 为 undefined 同样按首帧处理', () => {
+    const next = mkJob({ job_id: 'j1', status: 'failed' })
+    expect(decidePollOutcome(undefined, next).terminalTransition).toBe(true)
+  })
+
+  it('终态 → 终态（同一终态被再次观测）：停止但不重复报告迁移', () => {
+    const prev = mkJob({ job_id: 'j1', status: 'succeeded' })
+    const next = mkJob({ job_id: 'j1', status: 'succeeded' })
+    expect(decidePollOutcome(prev, next)).toEqual({
+      stopPolling: true,
+      terminalTransition: false,
+    })
+  })
+})
+
+// ============================================================
+// nextHistoryRefreshNonce：历史页刷新信号（T-030，无迁移不自增 → 无空转）
+// ============================================================
+
+describe('nextHistoryRefreshNonce', () => {
+  it('发生终态迁移：nonce +1', () => {
+    expect(nextHistoryRefreshNonce(0, true)).toBe(1)
+    expect(nextHistoryRefreshNonce(4, true)).toBe(5)
+  })
+
+  it('未发生迁移：nonce 原样返回，连续调用也不变', () => {
+    expect(nextHistoryRefreshNonce(3, false)).toBe(3)
+    expect(nextHistoryRefreshNonce(0, false)).toBe(0)
+  })
+})
+
+// ============================================================
+// shouldEmitJobSuccess：成功回调按 jobId 触发（T-030 修复 fireRef 闩锁）
+// ============================================================
+
+describe('shouldEmitJobSuccess', () => {
+  const selected = 'job-ok-1'
+  const succeeded = mkJob({ job_id: selected, status: 'succeeded' })
+
+  it('id 匹配、succeeded、未对该 jobId 触发过 → true', () => {
+    expect(shouldEmitJobSuccess(succeeded, selected, null)).toBe(true)
+    expect(shouldEmitJobSuccess(succeeded, selected, 'job-old')).toBe(true)
+  })
+
+  it('已对当前 jobId 触发过 → false（同一任务不重复刷新计数）', () => {
+    expect(shouldEmitJobSuccess(succeeded, selected, selected)).toBe(false)
+  })
+
+  it('activeJob 与选择态 id 不匹配 → false（防串台）', () => {
+    const stale = mkJob({ job_id: 'job-old', status: 'succeeded' })
+    expect(shouldEmitJobSuccess(stale, selected, null)).toBe(false)
+  })
+
+  it('仍在运行 → false', () => {
+    const running = mkJob({ job_id: selected, status: 'running' })
+    expect(shouldEmitJobSuccess(running, selected, null)).toBe(false)
+  })
+
+  it('activeJob 或 selectedJobId 为空 → false', () => {
+    expect(shouldEmitJobSuccess(null, selected, null)).toBe(false)
+    expect(shouldEmitJobSuccess(succeeded, null, null)).toBe(false)
+  })
+
+  it('复位后新任务成功：旧 jobId 已触发过，新 jobId 仍可再次触发', () => {
+    const nextJob = mkJob({ job_id: 'job-ok-2', status: 'succeeded' })
+    expect(shouldEmitJobSuccess(nextJob, 'job-ok-2', selected)).toBe(true)
   })
 })
 

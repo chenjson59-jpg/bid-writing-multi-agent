@@ -91,8 +91,53 @@ export function planJobJump(kind: string, currentTab: Tab): JobJumpDecision {
   return { tab, changedTab: tab !== currentTab }
 }
 
-/** 终态成功后，App poller 还会保留这么多毫秒让用户看到完成提示再清理。 */
-export const TERMINAL_GRACE_MS = 8_000
+// ---------- 终态生命周期（T-030：终态留存、即停轮询、显式复位、历史页刷新信号） ----------
+
+/** 一次 poll 观测后的槽位决策。 */
+export interface PollOutcome {
+  /** 本次响应已终态：该槽位立即停止轮询，但终态快照保留在 activeJobs 中等用户显式复位。 */
+  stopPolling: boolean
+  /** 是否发生「非终态 → 终态」迁移（prev 为 null 的首帧即终态也算），用于驱动历史页刷新。 */
+  terminalTransition: boolean
+}
+
+/**
+ * 由上一次观测值与本次 getJob 响应派生轮询决策：
+ * - 终态即停轮询，不再靠 grace 定时器清空状态来间接停止；
+ * - 仅在非终态 → 终态的迁移点报告 terminalTransition，
+ *   同一终态被再次观测不会重复产生事件（防重复刷新）。
+ */
+export function decidePollOutcome(
+  prev: JobView | null | undefined,
+  next: JobView,
+): PollOutcome {
+  const terminal = isTerminal(next)
+  return {
+    stopPolling: terminal,
+    terminalTransition: terminal && !isTerminal(prev),
+  }
+}
+
+/** 历史页刷新信号：只有终态迁移确实发生时才自增，无迁移保持不变（无空转）。 */
+export function nextHistoryRefreshNonce(current: number, terminalTransition: boolean): number {
+  return terminalTransition ? current + 1 : current
+}
+
+/**
+ * 页面成功回调（onUploaded/onWritten 侧栏计数刷新）是否应对当前选择态触发：
+ * 选择态与 activeJob 的 job_id 匹配、状态为 succeeded，且本 jobId 尚未触发过。
+ * 按 jobId 记账而非布尔闩锁：用户复位后提交的新任务成功时可以再次触发。
+ */
+export function shouldEmitJobSuccess(
+  activeJob: JobView | null | undefined,
+  selectedJobId: string | null,
+  firedJobId: string | null,
+): boolean {
+  if (!activeJob || !selectedJobId) return false
+  if (activeJob.job_id !== selectedJobId) return false
+  if (activeJob.status !== 'succeeded') return false
+  return firedJobId !== activeJob.job_id
+}
 
 // ---------- 过滤活跃任务 ----------
 
