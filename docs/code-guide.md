@@ -230,6 +230,6 @@ uv run pytest -q
 - 测试不得依赖真实 LLM、Embedding、MinerU 或网络，统一通过依赖注入使用 Fake；
 - 未设置覆盖率门禁前，不得在任何文档中宣称具体覆盖率数值；
 - 前端构建必须通过 TypeScript 检查，不得用 `// @ts-ignore` 掩盖类型错误；
-- 组件测试约定（T-035 起）：默认 jsdom 环境，`render`/`screen` + jest-dom matcher 断言，user-event 触发真实交互，范例见 `frontend/tests/ui.test.tsx`；只测 Node 能力的文件首行加 `// @vitest-environment node`；jsdom 缺失 API（scrollIntoView/IntersectionObserver/matchMedia）统一在 `frontend/tests/setup.ts` mock，不在用例内重复定义；jsdom 覆盖不了真实布局/滚动/Electron 主进程行为，仍需手动验证。
+- 组件测试约定（T-035 起）：默认 jsdom 环境，`render`/`screen` + jest-dom matcher 断言，user-event 触发真实交互，范例见 `frontend/tests/ui.test.tsx`；只测 Node 能力的文件首行加 `// @vitest-environment node`；jsdom 缺失 API（scrollIntoView/IntersectionObserver/matchMedia）统一在 `frontend/tests/setup.ts` mock，不在用例内重复定义；jsdom 覆盖不了真实布局/滚动/Electron 主进程行为，仍需手动验证；用 vi.useFakeTimers 驱动轮询/定时器的用例改用 fireEvent 派发 DOM 事件——user-event v14 内部会排期 setTimeout，在假定时器下会死等，范例见 frontend/tests/app_active_job.test.tsx（T-031）。
 - 未设覆盖率门禁前不安装任何 `@vitest/coverage-*` 工具，也不宣称覆盖率数值（AGENTS.md 第 4.3 节）。
 - 完整开发任务流程与阶段门禁见 `architecture.md` 第四部分。

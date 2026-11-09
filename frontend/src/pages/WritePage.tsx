@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createBid,
   createProfile,
@@ -19,6 +19,7 @@ import type {
   ProfileSchemaResponse,
   SchemaLevel,
 } from '../types'
+import { derivePageJobState } from '../lib/task_state'
 import { Banner, Button, Card, EmptyState, Field, Modal } from '../ui'
 import { ResultView } from './ResultView'
 
@@ -28,6 +29,10 @@ interface WritePageProps {
   onRegisterJob: (jobId: string | null) => void
   /** App 全局 poll 回来的最新任务状态（切 tab 也不会丢） */
   activeJob: JobView | null
+  /** T-031：App 持有的受控选择态，决定页面展示表单还是任务视图 */
+  selectedJobId: string | null
+  /** 「查看」聚焦信号，非 0 时滚动并高亮任务卡片 */
+  focusNonce: number
   onWritten: () => void
 }
 
@@ -180,7 +185,14 @@ function compactForm<T extends object>(form: T): Record<string, string> | null {
   return Object.keys(out).length > 0 ? out : null
 }
 
-export function WritePage({ initialDocId, onRegisterJob, activeJob, onWritten }: WritePageProps) {
+export function WritePage({
+  initialDocId,
+  onRegisterJob,
+  activeJob,
+  selectedJobId,
+  focusNonce,
+  onWritten,
+}: WritePageProps) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [docId, setDocId] = useState<string>('')
   const [companyName, setCompanyName] = useState('')
@@ -199,7 +211,6 @@ export function WritePage({ initialDocId, onRegisterJob, activeJob, onWritten }:
   const [maxSections, setMaxSections] = useState(0)
   const [exportWord, setExportWord] = useState(true)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<BidderProfileItem[]>([])
   const [profileId, setProfileId] = useState<number | null>(null)
@@ -491,7 +502,7 @@ export function WritePage({ initialDocId, onRegisterJob, activeJob, onWritten }:
     setLastBody(body)
     try {
       const accepted = await createBid(body)
-      setJobId(accepted.job_id)
+      // 选择态由 App 的 registerJob 统一置位，页面不再自持 jobId（T-031）
       onRegisterJob(accepted.job_id)
     } catch (e) {
       setError(describeError(e))
@@ -509,62 +520,83 @@ export function WritePage({ initialDocId, onRegisterJob, activeJob, onWritten }:
     })
   }
 
-  // 本地 jobId 仅用于视图切换（任务提交后的"任务视图 ←→ 表单视图"切换）
-  // activeJob 是 App 全局 poll 回来的最新状态（切 tab 也不会丢）
+  // T-031：任务视图由 App 受控选择态 + activeJob 三态派生，切 tab 重挂不丢
+  const view = derivePageJobState(selectedJobId, activeJob)
+  const localJob = view.mode === 'job' ? view.job : null
   const busy =
-    !!activeJob &&
-    (activeJob.status === 'pending' || activeJob.status === 'running')
-  const localJob = activeJob && jobId && activeJob.job_id === jobId ? activeJob : null
+    view.mode === 'submitting' ||
+    localJob?.status === 'pending' ||
+    localJob?.status === 'running'
+
+  // 「查看」反馈：滚动到任务卡片并短暂高亮（已在目标 tab 时点击也有明确反馈）
+  const [highlighted, setHighlighted] = useState(false)
+  const taskCardRef = useRef<HTMLDivElement | null>(null)
+  const highlightTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (focusNonce === 0 || view.mode === 'form') return
+    taskCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setHighlighted(true)
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current)
+    highlightTimerRef.current = window.setTimeout(() => setHighlighted(false), 2000)
+    return () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current)
+        highlightTimerRef.current = null
+      }
+    }
+  }, [focusNonce, view.mode])
   // 资料完整度实时提示，编写前就能看到还缺什么、该去哪填
   const liveMissing = missingProfileEntries()
   const liveMissingSet = new Set(liveMissing.map((m) => String(m.key)))
   const liveAdvancedMissing = liveMissing.filter((m) => ADVANCED_FIELD_KEYS.has(String(m.key)))
+
+  // T-031：任务视图优先于「暂无文档」EmptyState——重挂瞬间 documents 异步未返回时，
+  // 受控选择态仍应直接恢复任务视图，不被空态覆盖
+  if (view.mode !== 'form') {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-slate-100">编写标书</h2>
+        <div
+          ref={taskCardRef}
+          className={highlighted ? 'rounded-lg ring-2 ring-sky-400' : undefined}
+          data-testid="bid-task-card"
+        >
+          {busy && (
+            <Card title="编写进度">
+              <p className="text-sm text-slate-300">
+                {localJob ? (localJob.status === 'pending' ? '排队中' : '编写中') : '提交中'}
+              </p>
+              {localJob?.progress.map((p, i) => (
+                <p key={i} className="text-sm text-slate-400">
+                  {p}
+                </p>
+              ))}
+            </Card>
+          )}
+          {localJob?.status === 'failed' && (
+            <Card title="编写失败">
+              <Banner kind="error">{localJob.error ?? '编写失败'}</Banner>
+              <div className="mt-3 flex gap-2">
+                {lastBody && (
+                  <Button onClick={() => startBid(lastBody)}>重试（沿用原参数）</Button>
+                )}
+                <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                  返回修改参数
+                </Button>
+              </div>
+            </Card>
+          )}
+          {localJob?.status === 'succeeded' && localJob.bid && <ResultView bid={localJob.bid} />}
+        </div>
+      </div>
+    )
+  }
 
   if (documents.length === 0) {
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-100">编写标书</h2>
         <EmptyState title="暂无已抽取的文档" hint="请先在「上传解析」页完成结构化抽取" />
-      </div>
-    )
-  }
-
-  if (jobId) {
-    return (
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-100">编写标书</h2>
-        {busy && (
-          <Card title="编写进度">
-            <p className="text-sm text-slate-300">
-              {localJob ? (localJob.status === 'pending' ? '排队中' : '编写中') : '提交中'}
-            </p>
-            {localJob?.progress.map((p, i) => (
-              <p key={i} className="text-sm text-slate-400">
-                {p}
-              </p>
-            ))}
-          </Card>
-        )}
-        {localJob?.status === 'failed' && (
-          <Card title="编写失败">
-            <Banner kind="error">{localJob.error ?? '编写失败'}</Banner>
-            <div className="mt-3 flex gap-2">
-              {lastBody && (
-                <Button onClick={() => startBid(lastBody)}>重试（沿用原参数）</Button>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setJobId(null)
-                  onRegisterJob(null)
-                }}
-              >
-                返回修改参数
-              </Button>
-            </div>
-          </Card>
-        )}
-        {localJob?.status === 'succeeded' && localJob.bid && <ResultView bid={localJob.bid} />}
       </div>
     )
   }

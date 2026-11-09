@@ -1,20 +1,34 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { describeError, uploadParse } from '../api'
+import { derivePageJobState } from '../lib/task_state'
 import type { JobView } from '../types'
 import { Banner, Button, Card, EmptyState, Field, ProgressBar, Spinner } from '../ui'
 
 const MAX_MB = 200
+// 「查看」聚焦后任务卡片高亮时长
+const FOCUS_HIGHLIGHT_MS = 2000
 
 interface UploadPageProps {
   /** 页面提交 parse 任务时调这个，把 jobId 上交给 App 全局 poll */
   onRegisterJob: (jobId: string | null) => void
   /** App 全局 poll 回来的最新任务状态（切 tab 也不会丢） */
   activeJob: JobView | null
+  /** T-031：App 持有的受控选择态，决定页面展示表单还是任务视图 */
+  selectedJobId: string | null
+  /** 「查看」聚焦信号，非 0 时滚动并高亮任务卡片 */
+  focusNonce: number
   onUploaded: () => void
   onWrite: (docId: string) => void
 }
 
-export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: UploadPageProps) {
+export function UploadPage({
+  onRegisterJob,
+  activeJob,
+  selectedJobId,
+  focusNonce,
+  onUploaded,
+  onWrite,
+}: UploadPageProps) {
   const [file, setFile] = useState<File | null>(null)
   const [parser, setParser] = useState<'auto' | 'cloud' | 'local'>('auto')
   const [extract, setExtract] = useState(true)
@@ -22,20 +36,42 @@ export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: Up
   const [force, setForce] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [localJobId, setLocalJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [highlighted, setHighlighted] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const taskCardRef = useRef<HTMLDivElement | null>(null)
+  const highlightTimerRef = useRef<number | null>(null)
+
+  // T-031：任务视图完全由 App 受控选择态 + activeJob 派生，页面不再自持 jobId
+  const view = derivePageJobState(selectedJobId, activeJob)
+  const job = view.mode === 'job' ? view.job : null
+  const done = !!job && job.status === 'succeeded'
 
   // 任务成功时刷新文档列表计数（任务完成后页面可能已经切走）
   const fireRef = useRef(false)
   useEffect(() => {
-    if (!activeJob || !localJobId) return
-    if (activeJob.job_id !== localJobId) return
+    if (!activeJob || !selectedJobId) return
+    if (activeJob.job_id !== selectedJobId) return
     if (activeJob.status === 'succeeded' && !fireRef.current) {
       fireRef.current = true
       onUploaded()
     }
-  }, [activeJob?.status, activeJob?.job_id, localJobId, onUploaded])
+  }, [activeJob?.status, activeJob?.job_id, selectedJobId, onUploaded])
+
+  // 「查看」反馈：滚动到任务卡片并短暂高亮（同 tab 点击也有明确反馈）
+  useEffect(() => {
+    if (focusNonce === 0 || view.mode === 'form') return
+    taskCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setHighlighted(true)
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current)
+    highlightTimerRef.current = window.setTimeout(() => setHighlighted(false), FOCUS_HIGHLIGHT_MS)
+    return () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current)
+        highlightTimerRef.current = null
+      }
+    }
+  }, [focusNonce, view.mode])
 
   function pickFile(f: File | null) {
     setError(null)
@@ -70,7 +106,7 @@ export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: Up
         setProgress,
         controller.signal,
       )
-      setLocalJobId(accepted.job_id)
+      // 选择态交给 App：registerJob 内部置位 selectedJobIds，首帧前显示加载态
       onRegisterJob(accepted.job_id)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -88,13 +124,8 @@ export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: Up
   function cancelUpload() {
     abortRef.current?.abort()
     setUploading(false)
-    setLocalJobId(null)
     onRegisterJob(null)
   }
-
-  // activeJob 是 App 全局 poll 的最新状态；如果它就是我们这个任务，直接用
-  const job = activeJob && localJobId && activeJob.job_id === localJobId ? activeJob : null
-  const done = !!job && job.status === 'succeeded'
 
   return (
     <div className="space-y-4">
@@ -102,7 +133,7 @@ export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: Up
 
       {error && <Banner kind="error">{error}</Banner>}
 
-      {!localJobId && (
+      {view.mode === 'form' && (
         <Card>
           <div
             className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-700 py-12"
@@ -171,61 +202,67 @@ export function UploadPage({ onRegisterJob, activeJob, onUploaded, onWrite }: Up
         </Card>
       )}
 
-      {localJobId && (
-        <Card title="任务进度">
-          {job ? (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-300">
-                状态：
-                {job.status === 'pending' && '排队中'}
-                {job.status === 'running' && '运行中'}
-                {job.status === 'succeeded' && '已完成'}
-                {job.status === 'failed' && '失败'}
-              </p>
-              {job.progress.length > 0 && (
-                <ul className="space-y-1 text-sm text-slate-400">
-                  {job.progress.map((p, i) => (
-                    <li key={i}>{p}</li>
-                  ))}
-                </ul>
-              )}
-              {job.error && <Banner kind="error">{job.error}</Banner>}
-            </div>
-          ) : (
-            <Spinner />
-          )}
-        </Card>
-      )}
-
-      {done && job?.result && (
-        <Card title="解析结果">
-          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-            <p className="text-slate-400">文档类型<span className="block text-slate-200">{job.result.doc_type}</span></p>
-            <p className="text-slate-400">解析器<span className="block text-slate-200">{job.result.parser}</span></p>
-            <p className="text-slate-400">页数<span className="block text-slate-200">{job.result.pages}</span></p>
-            <p className="text-slate-400">章节数<span className="block text-slate-200">{job.result.sections}</span></p>
-          </div>
-          {job.extraction && (
-            <p className="mt-3 text-sm text-slate-400">
-              抽取摘要：评分因素 {job.extraction.evaluation_factors ?? '-'} · 格式条目 {job.extraction.bid_format_items ?? '-'}
-            </p>
-          )}
-          {job.ingest && (
-            <p className="mt-1 text-sm text-slate-400">
-              入库摘要：新增 {job.ingest.added ?? '-'} 片段
-            </p>
-          )}
-          <div className="mt-4">
-            {extract ? (
-              <Button onClick={() => onWrite(job.result!.doc_id)}>去编写标书</Button>
+      {view.mode !== 'form' && (
+        <div
+          ref={taskCardRef}
+          className={highlighted ? 'rounded-lg ring-2 ring-sky-400' : undefined}
+          data-testid="parse-task-card"
+        >
+          <Card title="任务进度">
+            {job ? (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-300">
+                  状态：
+                  {job.status === 'pending' && '排队中'}
+                  {job.status === 'running' && '运行中'}
+                  {job.status === 'succeeded' && '已完成'}
+                  {job.status === 'failed' && '失败'}
+                </p>
+                {job.progress.length > 0 && (
+                  <ul className="space-y-1 text-sm text-slate-400">
+                    {job.progress.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                )}
+                {job.error && <Banner kind="error">{job.error}</Banner>}
+              </div>
             ) : (
-              <p className="text-sm text-amber-400">未开启结构化抽取，无法编写标书。</p>
+              <Spinner />
             )}
-          </div>
-        </Card>
+          </Card>
+
+          {done && job?.result && (
+            <Card title="解析结果">
+              <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <p className="text-slate-400">文档类型<span className="block text-slate-200">{job.result.doc_type}</span></p>
+                <p className="text-slate-400">解析器<span className="block text-slate-200">{job.result.parser}</span></p>
+                <p className="text-slate-400">页数<span className="block text-slate-200">{job.result.pages}</span></p>
+                <p className="text-slate-400">章节数<span className="block text-slate-200">{job.result.sections}</span></p>
+              </div>
+              {job.extraction && (
+                <p className="mt-3 text-sm text-slate-400">
+                  抽取摘要：评分因素 {job.extraction.evaluation_factors ?? '-'} · 格式条目 {job.extraction.bid_format_items ?? '-'}
+                </p>
+              )}
+              {job.ingest && (
+                <p className="mt-1 text-sm text-slate-400">
+                  入库摘要：新增 {job.ingest.added ?? '-'} 片段
+                </p>
+              )}
+              <div className="mt-4">
+                {extract ? (
+                  <Button onClick={() => onWrite(job.result!.doc_id)}>去编写标书</Button>
+                ) : (
+                  <p className="text-sm text-amber-400">未开启结构化抽取，无法编写标书。</p>
+                )}
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
-      {!file && !localJobId && <EmptyState title="尚未选择文件" hint="支持拖拽或点击选择 PDF 文件" />}
+      {!file && view.mode === 'form' && <EmptyState title="尚未选择文件" hint="支持拖拽或点击选择 PDF 文件" />}
     </div>
   )
 }

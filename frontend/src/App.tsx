@@ -5,12 +5,11 @@ import { LibraryPage } from './pages/LibraryPage'
 import { UploadPage } from './pages/UploadPage'
 import { WritePage } from './pages/WritePage'
 import {
-  filterRunning,
   isRunning,
   isTerminal,
   jobEquals,
   kindLabel,
-  kindTab,
+  planJobJump,
   statusLabel,
   TERMINAL_GRACE_MS,
   type JobKind,
@@ -55,9 +54,14 @@ function GlobalTaskBar({
 }: {
   parseJob: JobView | null
   bidJob: JobView | null
-  onJumpTo: (tab: Tab) => void
+  onJumpTo: (kind: JobKind) => void
 }) {
-  const active = filterRunning([parseJob, bidJob])
+  // 显式带上 kind 槽位，保证「查看」回调类型安全（activeJobs 只有 parse/bid 两槽）
+  const slots: { kind: JobKind; job: JobView | null }[] = [
+    { kind: 'parse', job: parseJob },
+    { kind: 'bid', job: bidJob },
+  ]
+  const active = slots.filter((s): s is { kind: JobKind; job: JobView } => isRunning(s.job))
   if (active.length === 0) return null
 
   return (
@@ -70,7 +74,7 @@ function GlobalTaskBar({
           </span>
         </div>
         <ul>
-          {active.map((job) => (
+          {active.map(({ kind, job }) => (
             <li
               key={job.job_id}
               className="flex items-center gap-3 border-b border-slate-800/70 px-4 py-2 text-sm last:border-b-0"
@@ -102,7 +106,7 @@ function GlobalTaskBar({
               <button
                 type="button"
                 className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                onClick={() => onJumpTo(kindTab(job.kind))}
+                onClick={() => onJumpTo(kind)}
               >
                 查看
               </button>
@@ -130,12 +134,21 @@ export default function App() {
   })
   // 每种任务对应的后端 job_id（存在 ref 里避免闭包陈旧）
   const activeJobIdRef = useRef<Record<JobKind, string | null>>({ parse: null, bid: null })
+  // T-031：任务选择态上移 App。页面不再自持 jobId，重挂后凭此恢复任务视图（单槽/kind）
+  const [selectedJobIds, setSelectedJobIds] = useState<Record<JobKind, string | null>>({
+    parse: null,
+    bid: null,
+  })
+  // 「查看」聚焦信号：每次点击自增，页面 effect 据此滚动/高亮任务卡片
+  const [focusNonces, setFocusNonces] = useState<Record<JobKind, number>>({ parse: 0, bid: 0 })
 
   // 注册一个新的活跃任务（页面触发任务后调这个）
   const registerJob = useCallback((kind: JobKind, jobId: string | null) => {
     activeJobIdRef.current[kind] = jobId
+    // 选择态立即置位：首帧 poll 未返回时页面也能展示「提交中」
+    setSelectedJobIds((prev) => ({ ...prev, [kind]: jobId }))
     if (!jobId) {
-      // 取消/出错：立即清掉
+      // 取消/出错/返回修改参数：立即清掉活跃任务与选择态，页面回表单
       setActiveJobs((prev) => ({ ...prev, [kind]: null }))
     }
   }, [])
@@ -160,6 +173,8 @@ export default function App() {
               if (activeJobIdRef.current[kind] === jobId) {
                 activeJobIdRef.current[kind] = null
                 setActiveJobs((prev) => ({ ...prev, [kind]: null }))
+                // T-031：grace 清理后受控选择态同步清空，页面安全回退表单态
+                setSelectedJobIds((prev) => ({ ...prev, [kind]: null }))
               }
             }, TERMINAL_GRACE_MS)
           }
@@ -243,10 +258,15 @@ export default function App() {
           : 'down'
         : 'idle'
 
-  // 切 tab
-  function jumpTo(target: Tab) {
-    setTab(target)
-  }
+  // 底部任务栏「查看」：切到目标 tab（若需要）并通知页面滚动/高亮任务卡片
+  const jumpToJob = useCallback(
+    (kind: JobKind) => {
+      const decision = planJobJump(kind, tab)
+      setTab(decision.tab)
+      setFocusNonces((prev) => ({ ...prev, [kind]: prev[kind] + 1 }))
+    },
+    [tab],
+  )
 
   // 页面底部 padding，防止被 GlobalTaskBar 遮住
   const hasActiveTask = runningParse || runningBid
@@ -313,6 +333,8 @@ export default function App() {
           <UploadPage
             onRegisterJob={(jobId) => registerJob('parse', jobId)}
             activeJob={activeJobs.parse}
+            selectedJobId={selectedJobIds.parse}
+            focusNonce={focusNonces.parse}
             onUploaded={refreshCounts}
             onWrite={goWrite}
           />
@@ -325,13 +347,15 @@ export default function App() {
             initialDocId={selectedDocId}
             onRegisterJob={(jobId) => registerJob('bid', jobId)}
             activeJob={activeJobs.bid}
+            selectedJobId={selectedJobIds.bid}
+            focusNonce={focusNonces.bid}
             onWritten={refreshCounts}
           />
         )}
         {tab === 'history' && <HistoryPage onChanged={refreshCounts} />}
       </main>
 
-      <GlobalTaskBar parseJob={activeJobs.parse} bidJob={activeJobs.bid} onJumpTo={jumpTo} />
+      <GlobalTaskBar parseJob={activeJobs.parse} bidJob={activeJobs.bid} onJumpTo={jumpToJob} />
     </div>
   )
 }
