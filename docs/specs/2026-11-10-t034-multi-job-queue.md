@@ -87,11 +87,14 @@ export interface RegisterJobInput {
   kind: JobKind
   jobId: string
   onSettled?: SettledCallback
+  // 实现期补记，见下方 autoSelect 说明
+  autoSelect?: boolean
 }
 // App 暴露
 registerJob(input: RegisterJobInput): void
 closeJob(jobId: string): void
 closeSelectedOnChannel(channel: PageChannel): void
+deselectChannel(channel: PageChannel): void
 ```
 
 - `registerJob`：纯函数 `registerTrackedJob(jobs, entry)` 把新条目**前插**到数组
@@ -109,6 +112,12 @@ closeSelectedOnChannel(channel: PageChannel): void
   没有条目（登记发生在 `await` 成功之后），`onCloseJob` 为空操作，保持安全。
 - 失败任务的「重试（沿用原参数）」登记新 jobId 并自动选中；旧失败条目不自动消失，
   留在任务栏由用户显式关闭（多任务语义下任何任务都不被隐式移除）。
+- 【实现期补记】`autoSelect`（默认 true）：parse/bid 顶层提交保持自动选中；
+  ResultView 发起的 supplement/rewrite 必须传 `autoSelect: false`。根因：这类子任务
+  与当前 write 通道选中的 bid 同通道，若登记即自动选中，选择态会从当前 bid 切走，
+  注册 `onSettled` 回调的 ResultView 随即卸载，其 unmount cleanup 会立刻 revoke 刚
+  登记的回调，终态刷新永远无法触发。子任务不抢占选择态，发起者保持挂载，回调链路
+  才完整（组件用例「补写/重写终态只刷新一次」固化该约束）。
 
 ### 3.3 决策三：轮询生命周期——多 job 并发、终态即停、显式清理
 
@@ -146,6 +155,13 @@ closeSelectedOnChannel(channel: PageChannel): void
   页内切换器会重复一套选择 UI 并扩大本任务改造面。集合内其他任务在任务栏持续可见，
   不丢失可达性。
 - 新提交任务经 `registerJob` 自动选中，用户停在原页面即可看到最新任务进度。
+- 【实现期补记】运行中回表单的显式入口 `deselectChannel(channel)`（页面 prop
+  `onDeselect`，UI 为任务卡上的 ghost 按钮「返回表单（后台继续）」）：只把该通道
+  选择态置 null，**不关任务、不停轮询、不动集合**。这是「任务进行中仍可填表再次
+  提交」的必要配套——通道单选下页面被选中任务占据时没有表单可填，用户必须能先
+  脱选回表单；脱选后任务仍在任务栏可达，「查看」可再次定位。它与 `onCloseJob`
+  （级联关闭、移除集合）职责严格区分，不属于范围外的「页内任务切换器」：不提供
+  任务列表，只做选择态脱选。
 
 ### 3.5 决策五：pending/running 区分、置顶规则与任务栏多任务布局
 
@@ -184,9 +200,17 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
   卸载组件实例」的链路。组件重挂后通过既有 mount 拉取（`listSections`）与终态后的
   HistoryPage 自动刷新获得最新数据，不依赖旧回调补账。
 - 禁止卸载后 setState：终态文案（补写/重写完成或失败提示）**不由回调写入 state**，
-  改为渲染期根据全局快照派生（状态机 + 快照字段）；回调只负责数据刷新
-  （`onSupplemented` 列表刷新、rewrite 的 `getBid`+`listSections` 刷新），且这些
-  回调在卸载时已被 revoke，不存在对已卸载组件 setState 的路径。
+  改为渲染期根据全局快照派生（状态机 + 快照字段）；回调只负责数据刷新，且这些回调
+  在卸载时已被 revoke，不存在对已卸载组件 setState 的路径。
+- 【实现期补记】两类子任务的实际接线（避免同一刷新被两条链路触发两次）：
+  - rewrite：`onSettled` 调 `refreshSummary()`（`getBid` 重拉摘要 + `listSections`
+    重拉章节 + `onChanged`），WritePage 与 HistoryPage 展开区共用同一 ResultView
+    实现，组件用例断言终态恰好各刷新一次、重放不重复；
+  - supplement：WritePage 传 `onSupplemented={onWritten}`，终态经回调刷新侧栏
+    标书计数；HistoryPage **不再传** `onSupplemented`——该页已由 T-030 的全局
+    `historyRefreshNonce` 在任意任务终态迁移时统一 `load()`（listBids/listTasks），
+    再传本地回调会导致同一次终态双重请求。即「标书列表刷新」行为不丢，只是收敛为
+    nonce 单路径，组件用例分别断言两条路径各自恰好一次。
 - 适用范围：parse/bid 页面既有成功副作用（UploadPage 的 `shouldEmitJobSuccess`、
   WritePage 的 succeeded effect）保持原机制不动，本机制只承接 supplement/rewrite。
 
@@ -232,8 +256,9 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
    文案与颜色明确区分。
 4. 终态即停：某条目终态后 getJob 调用次数冻结，其他条目轮询不受影响；终态行留存并
    出现「关闭」，点击后从集合移除；若关闭的是选中项，页面回表单。
-5. 补写终态：一次性触发 `onSupplemented`（HistoryPage 为列表 reload），重放终态不
-   二次触发；产物在 HistoryPage 自动出现。
+5. 补写终态：一次性终态迁移、回调取后即删，重放终态不二次触发。编写页挂载时经
+   `onSettled → onSupplemented → onWritten` 刷新侧栏计数；历史页由全局 nonce 统一
+   reload（单路径，不双刷），新产物在 HistoryPage 自动出现。
 6. 重写终态：一次性触发 `getBid`+`listSections` 刷新与 `onChanged`；失败终态展示
    `job.error`，不触发刷新回调。
 7. poll 失败：静默跳过、下一轮重试；与旧 ResultView 私有轮询「一次 getJob 失败即
@@ -244,11 +269,16 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
 10. 上传取消/上传请求异常：登记尚未发生，`onCloseJob` 空操作，集合保持不变。
 11. 失败任务重试：新 jobId 登记置顶并选中，旧失败条目留存待显式关闭。
 12. 同 id 重复登记（防御）：替换条目并置顶，不产生重复行。
+13. 运行中脱选（「返回表单（后台继续）」）：仅选择态置 null，集合/轮询/任务栏不
+    变，回表单可再次提交；脱选后经任务栏「查看」可重新选中同一任务。
+14. supplement/rewrite 以 `autoSelect:false` 登记：不切换当前通道选择态，发起者
+    ResultView 保持挂载，避免卸载 cleanup 撤销自身终态回调。
 
 ## 6. 纯函数清单（task_state.ts，无 React 依赖）
 
 新增（命名以实现为准，语义不变）：类型 `JobKind`（四值）、`PageChannel`、
-`TrackedJob`、`JobCollection`、`SettledCallback`、`ChannelSelection`、`JobBridge`；
+`TrackedJob`、`JobCollection`、`SettledCallback`、`ChannelSelection`、`JobBridge`、
+`RegisterJobInput`（含实现期补入的 `autoSelect`）、`PageJobState` 沿用既有定义；
 集合操作 `registerTrackedJob`、`upsertJobSnapshot`（jobEquals 相等返回原引用）、
 `markJobSettled`、`closeJobById`、`findTrackedJob`、`pollableJobs`、
 `selectedJobSnapshot`；选择态 `selectionAfterRegister`、`selectionAfterClose`；
@@ -284,8 +314,10 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
 2. 后提交任务自动选中置顶；pending 显示「排队中」、running 显示「运行中」；
 3. 任务终态后该 jobId 的 getJob 调用次数冻结、快照留存（结果视图仍在）、任务栏
    「关闭」后条目移除且集合行消失；
-4. supplement 提交后出现在任务栏（标签「补写」），终态 `onSupplemented` 对应刷新
-   恰好一次；rewrite 同理（标签「重写」，章节/摘要刷新恰好一次）；
+4. supplement 提交后出现在任务栏（标签「补写」，运行中无「关闭」），停留编写页
+   终态时 `onSettled → onSupplemented → onWritten` 刷新侧栏计数恰好一次、重放不
+   重复，进入历史页后无新迁移则不产生额外请求；rewrite 同理（标签「重写」，
+   `getBid`/`listSections` 刷新恰好一次），并 spy 断言全程无 2s 私有 interval；
 5. ResultView 卸载（切 tab）后任务终态：回调不触碰已卸载组件、全程不存在 2s
    interval（spy 断言）、重挂后无报错；
 6. 回归：切 tab 任务视图恢复、「查看」高亮、HistoryPage 终态自动刷新在多任务结构下
