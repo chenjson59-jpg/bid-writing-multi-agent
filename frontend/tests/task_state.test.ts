@@ -3,25 +3,44 @@
  * 这些函数没有副作用，没有 React 依赖，直接 vitest 跑，不需要 jsdom。
  * 如果某个函数在 App.tsx / GlobalTaskBar 里改了行为，这里必然失败。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { JobView } from '../src/types'
 import {
+  closeJobById,
   decidePollOutcome,
   derivePageJobState,
   filterRunning,
+  findTrackedJob,
   hasRunning,
   isRunning,
   isTerminal,
+  jobChannel,
   jobEquals,
   kindLabel,
   kindTab,
+  markJobSettled,
   nextHistoryRefreshNonce,
   pickJobForKind,
   planJobJump,
+  pollableJobs,
+  putSettledCallback,
+  registerTrackedJob,
+  revokeSettledCallback,
+  selectionAfterClose,
+  selectionAfterRegister,
+  selectedJobSnapshot,
   shouldEmitJobSuccess,
   statusLabel,
+  takeSettledCallback,
   terminalOutcome,
+  upsertJobSnapshot,
+} from '../src/lib/task_state'
+import type {
+  ChannelSelection,
+  JobKind,
+  SettledCallback,
+  TrackedJob,
 } from '../src/lib/task_state'
 
 // ---------- 测试用夹具（最小必要 JobView） ----------
@@ -124,9 +143,11 @@ describe('statusLabel', () => {
 describe('kindLabel', () => {
   it('parse → 解析', () => expect(kindLabel('parse')).toBe('解析'))
   it('bid → 编写', () => expect(kindLabel('bid')).toBe('编写'))
-  it('supplement → 编写（补写也算编写）', () => expect(kindLabel('supplement')).toBe('编写'))
-  it('rewrite → 编写', () => expect(kindLabel('rewrite')).toBe('编写'))
+  // T-034 决策七：任务栏需区分补写/重写，标签从「编写」细化（断言迁移，非删例）
+  it('supplement → 补写（T-034 由「编写」迁移）', () => expect(kindLabel('supplement')).toBe('补写'))
+  it('rewrite → 重写（T-034 由「编写」迁移）', () => expect(kindLabel('rewrite')).toBe('重写'))
   it('空字符串 → 兜底 "任务"', () => expect(kindLabel('')).toBe('任务'))
+  it('未知 kind → 原样返回（兜底，不臆造标签）', () => expect(kindLabel('future-kind')).toBe('future-kind'))
 })
 
 describe('kindTab', () => {
@@ -463,5 +484,269 @@ describe('planJobJump', () => {
   it('history/library 等非目标 tab 点击查看 → 必然发生 tab 切换', () => {
     expect(planJobJump('parse', 'history')).toEqual({ tab: 'upload', changedTab: true })
     expect(planJobJump('bid', 'library')).toEqual({ tab: 'write', changedTab: true })
+  })
+})
+
+// ============================================================
+// T-034 多任务集合（job_id 键控、四 kind、终态留存与显式关闭）
+// ============================================================
+
+function mkEntry(
+  overrides: Partial<TrackedJob> & Pick<TrackedJob, 'jobId' | 'kind'>,
+): TrackedJob {
+  return { job: null, settled: false, ...overrides }
+}
+
+const emptySelection: ChannelSelection = { upload: null, write: null }
+
+describe('T-034 jobChannel（kind → 页面通道）', () => {
+  it('parse → upload 通道', () => {
+    expect(jobChannel('parse')).toBe('upload')
+  })
+  it('bid / supplement / rewrite → write 通道', () => {
+    expect(jobChannel('bid')).toBe('write')
+    expect(jobChannel('supplement')).toBe('write')
+    expect(jobChannel('rewrite')).toBe('write')
+  })
+  it('未知 kind → 兜底 write（非 parse 一律 write）', () => {
+    expect(jobChannel('whatever-new-kind')).toBe('write')
+  })
+  it('kindTab 与 jobChannel 输出保持一致', () => {
+    expect(kindTab('parse')).toBe(jobChannel('parse'))
+    expect(kindTab('supplement')).toBe(jobChannel('supplement'))
+    expect(kindTab('rewrite')).toBe(jobChannel('rewrite'))
+  })
+})
+
+describe('T-034 registerTrackedJob（追加、置顶、不覆盖）', () => {
+  it('空集合追加：成为唯一条目', () => {
+    const next = registerTrackedJob([], mkEntry({ jobId: 'j1', kind: 'parse' }))
+    expect(next).toHaveLength(1)
+    expect(next[0].jobId).toBe('j1')
+  })
+
+  it('连续追加两个不同 id：互不覆盖且新任务置顶', () => {
+    const first = registerTrackedJob([], mkEntry({ jobId: 'j1', kind: 'bid' }))
+    const second = registerTrackedJob(first, mkEntry({ jobId: 'j2', kind: 'bid' }))
+    expect(second.map((e) => e.jobId)).toEqual(['j2', 'j1'])
+  })
+
+  it('同类多任务全部保留（旧单槽覆盖根因的回归用例）', () => {
+    let jobs: TrackedJob[] = []
+    for (const jobId of ['j1', 'j2', 'j3']) {
+      jobs = registerTrackedJob(jobs, mkEntry({ jobId, kind: 'bid' }))
+    }
+    expect(jobs).toHaveLength(3)
+    expect(jobs.map((e) => e.jobId)).toEqual(['j3', 'j2', 'j1'])
+    expect(jobs.every((e) => e.kind === 'bid')).toBe(true)
+  })
+
+  it('同 jobId 重复登记：替换条目并置顶，不产生重复行', () => {
+    const first = registerTrackedJob([], mkEntry({ jobId: 'j1', kind: 'bid' }))
+    const second = registerTrackedJob(first, mkEntry({ jobId: 'j2', kind: 'parse' }))
+    const replaced = registerTrackedJob(
+      second,
+      mkEntry({ jobId: 'j1', kind: 'bid', job: mkJob({ job_id: 'j1' }), settled: true }),
+    )
+    expect(replaced).toHaveLength(2)
+    expect(replaced.map((e) => e.jobId)).toEqual(['j1', 'j2'])
+    expect(replaced[0].settled).toBe(true)
+    expect(replaced[0].job?.job_id).toBe('j1')
+  })
+
+  it('不可变更新：原数组不被修改', () => {
+    const prev = [mkEntry({ jobId: 'j1', kind: 'parse' })]
+    const snapshot = [...prev]
+    registerTrackedJob(prev, mkEntry({ jobId: 'j2', kind: 'parse' }))
+    expect(prev).toEqual(snapshot)
+  })
+})
+
+describe('T-034 upsertJobSnapshot（按 id 更新快照与渲染 bail-out）', () => {
+  const jobs: TrackedJob[] = [
+    mkEntry({ jobId: 'j2', kind: 'bid', job: mkJob({ job_id: 'j2', status: 'running' }) }),
+    mkEntry({ jobId: 'j1', kind: 'parse', job: mkJob({ job_id: 'j1', status: 'running' }) }),
+  ]
+
+  it('按 jobId 更新对应快照，其他条目与顺序不变', () => {
+    const nextJob = mkJob({ job_id: 'j1', status: 'succeeded', progress: ['done'] })
+    const next = upsertJobSnapshot(jobs, 'j1', nextJob)
+    expect(next[1].job).toBe(nextJob)
+    expect(next[0]).toBe(jobs[0])
+    expect(next.map((e) => e.jobId)).toEqual(['j2', 'j1'])
+  })
+
+  it('新快照与旧快照 jobEquals 相等：返回原数组引用（避免无意义重渲染）', () => {
+    const same = mkJob({ job_id: 'j2', status: 'running' })
+    const next = upsertJobSnapshot(jobs, 'j2', same)
+    expect(next).toBe(jobs)
+  })
+
+  it('未知 jobId：原样返回同一引用', () => {
+    expect(upsertJobSnapshot(jobs, 'missing', mkJob({ job_id: 'missing' }))).toBe(jobs)
+  })
+
+  it('条目快照为 null（首帧）：写入快照且数组引用变化', () => {
+    const pending = [mkEntry({ jobId: 'j9', kind: 'supplement', job: null })]
+    const first = mkJob({ job_id: 'j9', status: 'pending' })
+    const next = upsertJobSnapshot(pending, 'j9', first)
+    expect(next[0].job).toBe(first)
+    expect(next).not.toBe(pending)
+  })
+})
+
+describe('T-034 markJobSettled（终态即停、快照留存）', () => {
+  it('settled false → true，job 快照保留', () => {
+    const jobs = [mkEntry({ jobId: 'j1', kind: 'bid', job: mkJob({ job_id: 'j1', status: 'succeeded' }) })]
+    const next = markJobSettled(jobs, 'j1')
+    expect(next[0].settled).toBe(true)
+    expect(next[0].job?.job_id).toBe('j1')
+  })
+  it('已 settled 再标记：返回原数组引用', () => {
+    const jobs = [mkEntry({ jobId: 'j1', kind: 'bid', settled: true })]
+    expect(markJobSettled(jobs, 'j1')).toBe(jobs)
+  })
+  it('未知 jobId：原样返回', () => {
+    const jobs = [mkEntry({ jobId: 'j1', kind: 'bid' })]
+    expect(markJobSettled(jobs, 'missing')).toBe(jobs)
+  })
+})
+
+describe('T-034 closeJobById（显式关闭清理）', () => {
+  const jobs: TrackedJob[] = [
+    mkEntry({ jobId: 'j2', kind: 'bid' }),
+    mkEntry({ jobId: 'j1', kind: 'parse', settled: true }),
+  ]
+
+  it('移除指定条目，其他条目与顺序保留', () => {
+    const next = closeJobById(jobs, 'j1')
+    expect(next.map((e) => e.jobId)).toEqual(['j2'])
+  })
+  it('移除置顶条目后剩余顺序不变', () => {
+    expect(closeJobById(jobs, 'j2').map((e) => e.jobId)).toEqual(['j1'])
+  })
+  it('未知 jobId：返回原数组引用', () => {
+    expect(closeJobById(jobs, 'missing')).toBe(jobs)
+  })
+  it('不可变：原数组不被修改', () => {
+    const snapshot = jobs.map((e) => e.jobId)
+    closeJobById(jobs, 'j1')
+    expect(jobs.map((e) => e.jobId)).toEqual(snapshot)
+  })
+})
+
+describe('T-034 findTrackedJob / pollableJobs / selectedJobSnapshot', () => {
+  const jobs: TrackedJob[] = [
+    mkEntry({ jobId: 'j3', kind: 'rewrite', settled: true, job: mkJob({ job_id: 'j3', status: 'succeeded' }) }),
+    mkEntry({ jobId: 'j2', kind: 'bid', settled: false, job: mkJob({ job_id: 'j2', status: 'running' }) }),
+    mkEntry({ jobId: 'j1', kind: 'parse', settled: false, job: null }),
+  ]
+
+  it('findTrackedJob：命中返回同引用，null/未知 id 返回 null', () => {
+    expect(findTrackedJob(jobs, 'j2')).toBe(jobs[1])
+    expect(findTrackedJob(jobs, null)).toBeNull()
+    expect(findTrackedJob(jobs, 'missing')).toBeNull()
+  })
+
+  it('pollableJobs：只返回 settled=false 且保持数组顺序', () => {
+    expect(pollableJobs(jobs).map((e) => e.jobId)).toEqual(['j2', 'j1'])
+  })
+
+  it('全部终态时 pollableJobs 为空数组（全局 interval 不空转请求）', () => {
+    const allDone = jobs.map((e) => ({ ...e, settled: true }))
+    expect(pollableJobs(allDone)).toEqual([])
+  })
+
+  it('selectedJobSnapshot：返回选中条目的同一快照引用', () => {
+    expect(selectedJobSnapshot(jobs, 'j2')).toBe(jobs[1].job)
+  })
+  it('selectedJobSnapshot：选中条目首帧快照为 null → null（对应 submitting 态）', () => {
+    expect(selectedJobSnapshot(jobs, 'j1')).toBeNull()
+  })
+  it('selectedJobSnapshot：selectedId 为 null 或找不到 → null', () => {
+    expect(selectedJobSnapshot(jobs, null)).toBeNull()
+    expect(selectedJobSnapshot(jobs, 'missing')).toBeNull()
+  })
+})
+
+describe('T-034 通道选择态 selectionAfterRegister / selectionAfterClose', () => {
+  it('登记后对应通道选中新 jobId，另一通道不变', () => {
+    const next = selectionAfterRegister(emptySelection, 'write', 'j1')
+    expect(next).toEqual({ upload: null, write: 'j1' })
+    expect(next).not.toBe(emptySelection)
+  })
+
+  it('同通道再次登记：选择态指向最新任务（自动选中置顶任务）', () => {
+    const first = selectionAfterRegister(emptySelection, 'write', 'j1')
+    const second = selectionAfterRegister(first, 'write', 'j2')
+    expect(second.write).toBe('j2')
+    expect(second.upload).toBeNull()
+  })
+
+  it('关闭的正是当前选中项：该通道回 null（页面回表单），另一通道不变', () => {
+    const selected = { upload: 'p1', write: 'j1' }
+    expect(selectionAfterClose(selected, 'write', 'j1')).toEqual({ upload: 'p1', write: null })
+  })
+
+  it('关闭非选中项：选择态保持不变', () => {
+    const selected = { upload: null, write: 'j1' }
+    expect(selectionAfterClose(selected, 'write', 'j2')).toBe(selected)
+  })
+
+  it('关闭另一通道的任务：本通道选择态不受影响', () => {
+    const selected = { upload: 'p1', write: 'j1' }
+    expect(selectionAfterClose(selected, 'upload', 'p1')).toEqual({ upload: null, write: 'j1' })
+  })
+})
+
+describe('T-034 终态回调注册表（一次触发、卸载撤销）', () => {
+  it('put 后 take 取到同一函数引用', () => {
+    const reg = new Map<string, SettledCallback>()
+    const cb = vi.fn()
+    putSettledCallback(reg, 'j1', cb)
+    expect(takeSettledCallback(reg, 'j1')).toBe(cb)
+  })
+
+  it('take 取出即删：重放终态第二次 take 为 undefined（回调只触发一次）', () => {
+    const reg = new Map<string, SettledCallback>()
+    putSettledCallback(reg, 'j1', vi.fn())
+    takeSettledCallback(reg, 'j1')
+    expect(takeSettledCallback(reg, 'j1')).toBeUndefined()
+  })
+
+  it('revoke 后 take 为 undefined（组件卸载清理，不操作已卸载组件）', () => {
+    const reg = new Map<string, SettledCallback>()
+    const cb = vi.fn()
+    putSettledCallback(reg, 'j1', cb)
+    revokeSettledCallback(reg, 'j1')
+    expect(takeSettledCallback(reg, 'j1')).toBeUndefined()
+    expect(cb).not.toHaveBeenCalled()
+  })
+
+  it('同 jobId 再次 put：以最新回调为准（覆盖登记）', () => {
+    const reg = new Map<string, SettledCallback>()
+    const first = vi.fn()
+    const second = vi.fn()
+    putSettledCallback(reg, 'j1', first)
+    putSettledCallback(reg, 'j1', second)
+    expect(takeSettledCallback(reg, 'j1')).toBe(second)
+    expect(first).not.toHaveBeenCalled()
+  })
+
+  it('不同 jobId 互不干扰，revoke 一个不影响另一个', () => {
+    const reg = new Map<string, SettledCallback>()
+    const cb1 = vi.fn()
+    const cb2 = vi.fn()
+    putSettledCallback(reg, 'j1', cb1)
+    putSettledCallback(reg, 'j2', cb2)
+    revokeSettledCallback(reg, 'j1')
+    expect(takeSettledCallback(reg, 'j2')).toBe(cb2)
+    expect(takeSettledCallback(reg, 'j1')).toBeUndefined()
+  })
+
+  it('对未登记的 jobId 执行 take/revoke 不抛异常', () => {
+    const reg = new Map<string, SettledCallback>()
+    expect(() => takeSettledCallback(reg, 'x')).not.toThrow()
+    expect(() => revokeSettledCallback(reg, 'x')).not.toThrow()
   })
 })

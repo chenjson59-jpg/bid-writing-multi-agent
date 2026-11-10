@@ -5,8 +5,43 @@
  */
 import type { JobStatus, JobView } from '../types'
 
-export type JobKind = 'parse' | 'bid'
+// T-034：内部登记的四类任务；JobView.kind 仍是 string，条目 kind 只由四个登记入口字面量写入
+export type JobKind = 'parse' | 'bid' | 'supplement' | 'rewrite'
 export type Tab = 'upload' | 'library' | 'write' | 'history'
+// 承载任务视图的页面通道：parse 归 upload，bid/supplement/rewrite 归 write
+export type PageChannel = 'upload' | 'write'
+
+/** 全局集合中的单个跟踪任务（数组元素，顺序即任务栏展示顺序，最新在前）。 */
+export interface TrackedJob {
+  jobId: string
+  kind: JobKind
+  /** 最近一次 getJob 快照；登记后首帧 poll 前为 null（对应 T-031 submitting 态）。 */
+  job: JobView | null
+  /** 终态已观测：停止轮询但快照留存，等待用户显式关闭。 */
+  settled: boolean
+}
+export type JobCollection = TrackedJob[]
+
+/** 终态迁移点触发的一次性回调（补写列表刷新 / 重写章节刷新等）。 */
+export type SettledCallback = (job: JobView) => void
+
+/** 两个页面通道的当前选中 jobId。 */
+export type ChannelSelection = Record<PageChannel, string | null>
+
+export interface RegisterJobInput {
+  kind: JobKind
+  jobId: string
+  onSettled?: SettledCallback
+}
+
+/** App 下发给 ResultView 的任务桥接（登记/撤销回调/查快照），避免层层透传多个 props。 */
+export interface JobBridge {
+  track: (input: RegisterJobInput) => void
+  revoke: (jobId: string) => void
+  find: (jobId: string) => JobView | null
+}
+
+export const EMPTY_SELECTION: ChannelSelection = { upload: null, write: null }
 
 // ---------- 状态判断 ----------
 
@@ -44,16 +79,23 @@ export function statusLabel(status: string): string {
   return STATUS_LABEL[status as JobStatus] ?? status
 }
 
+// T-034 决策七：补写/重写在任务栏独立成标签；未知 kind 原样返回，不臆造
 export function kindLabel(kind: string): string {
   if (kind === 'parse') return '解析'
-  if (kind === 'bid' || kind === 'supplement' || kind === 'rewrite') return '编写'
+  if (kind === 'bid') return '编写'
+  if (kind === 'supplement') return '补写'
+  if (kind === 'rewrite') return '重写'
   return kind || '任务'
 }
 
-/** kind → 对应哪个 Tab（用于"查看"按钮跳转）。 */
+/** kind → 页面通道：只有 parse 归 upload，其余一律 write。 */
+export function jobChannel(kind: string): PageChannel {
+  return kind === 'parse' ? 'upload' : 'write'
+}
+
+/** kind → 对应哪个 Tab（用于"查看"按钮跳转）；输出与 T-030/T-031 锁定值一致。 */
 export function kindTab(kind: string): Tab {
-  if (kind === 'parse') return 'upload'
-  return 'write'
+  return jobChannel(kind)
 }
 
 // ---------- 页面任务视图的受控派生（T-031：选择态上移 App 后，页面只做派生） ----------
@@ -189,4 +231,117 @@ export function pickJobForKind(
   kind: JobKind,
 ): JobView | null {
   return activeJobs[kind] ?? null
+}
+
+// ============================================================
+// T-034 多任务集合：以 job_id 为键的有序数组（最新在前），纯函数无 React 依赖
+// ============================================================
+
+/**
+ * 登记新任务：前插置顶；同 jobId 已存在时防御性替换（正常流程不会重复登记）。
+ * 旧单槽 Record 的同类覆盖根因即由本函数的「追加而非替换」语义修复。
+ */
+export function registerTrackedJob(jobs: JobCollection, entry: TrackedJob): JobCollection {
+  return [entry, ...jobs.filter((item) => item.jobId !== entry.jobId)]
+}
+
+/** 按 jobId 写入最新快照；jobEquals 相等或 id 不存在时返回原数组引用（渲染 bail-out）。 */
+export function upsertJobSnapshot(
+  jobs: JobCollection,
+  jobId: string,
+  job: JobView,
+): JobCollection {
+  const index = jobs.findIndex((item) => item.jobId === jobId)
+  if (index < 0) return jobs
+  if (jobEquals(jobs[index].job, job)) return jobs
+  const next = jobs.slice()
+  next[index] = { ...jobs[index], job }
+  return next
+}
+
+/** 终态观测：置 settled=true 停止轮询，快照保留；重复标记返回原引用。 */
+export function markJobSettled(jobs: JobCollection, jobId: string): JobCollection {
+  const index = jobs.findIndex((item) => item.jobId === jobId)
+  if (index < 0) return jobs
+  if (jobs[index].settled) return jobs
+  const next = jobs.slice()
+  next[index] = { ...jobs[index], settled: true }
+  return next
+}
+
+/** 显式关闭：从集合移除条目；id 不存在时返回原引用。 */
+export function closeJobById(jobs: JobCollection, jobId: string): JobCollection {
+  if (!jobs.some((item) => item.jobId === jobId)) return jobs
+  return jobs.filter((item) => item.jobId !== jobId)
+}
+
+/** 按 jobId 查找条目；null/未知 id 返回 null。 */
+export function findTrackedJob(
+  jobs: JobCollection,
+  jobId: string | null,
+): TrackedJob | null {
+  if (!jobId) return null
+  return jobs.find((item) => item.jobId === jobId) ?? null
+}
+
+/** 仍需轮询的条目（settled=false），保持登记顺序。 */
+export function pollableJobs(jobs: JobCollection): TrackedJob[] {
+  return jobs.filter((item) => !item.settled)
+}
+
+/** 页面受控 activeJob：选中条目的快照；首帧为 null 或选中项不存在时返回 null。 */
+export function selectedJobSnapshot(
+  jobs: JobCollection,
+  selectedId: string | null,
+): JobView | null {
+  return findTrackedJob(jobs, selectedId)?.job ?? null
+}
+
+/** 登记后把对应通道选择态指向新 jobId（自动选中）；同值返回原引用。 */
+export function selectionAfterRegister(
+  selection: ChannelSelection,
+  channel: PageChannel,
+  jobId: string,
+): ChannelSelection {
+  if (selection[channel] === jobId) return selection
+  return { ...selection, [channel]: jobId }
+}
+
+/** 关闭任务后修正选择态：被关的正是选中项才回 null（页面回表单），否则原样返回。 */
+export function selectionAfterClose(
+  selection: ChannelSelection,
+  channel: PageChannel,
+  closedId: string,
+): ChannelSelection {
+  if (selection[channel] !== closedId) return selection
+  return { ...selection, [channel]: null }
+}
+
+// ---------- 终态回调注册表（App 用 ref 持有 Map；操作对入参纯净，便于离线测试） ----------
+
+/** 登记终态回调；同 jobId 覆盖以最新为准。 */
+export function putSettledCallback(
+  registry: Map<string, SettledCallback>,
+  jobId: string,
+  callback: SettledCallback,
+): void {
+  registry.set(jobId, callback)
+}
+
+/** 取出即删：终态迁移点只调用一次，重放终态拿到 undefined。 */
+export function takeSettledCallback(
+  registry: Map<string, SettledCallback>,
+  jobId: string,
+): SettledCallback | undefined {
+  const callback = registry.get(jobId)
+  if (callback !== undefined) registry.delete(jobId)
+  return callback
+}
+
+/** 组件卸载撤销：任务继续全局轮询，但回调不再触达已卸载实例。 */
+export function revokeSettledCallback(
+  registry: Map<string, SettledCallback>,
+  jobId: string,
+): void {
+  registry.delete(jobId)
 }
