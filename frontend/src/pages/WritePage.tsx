@@ -19,20 +19,26 @@ import type {
   ProfileSchemaResponse,
   SchemaLevel,
 } from '../types'
-import { derivePageJobState } from '../lib/task_state'
+import { derivePageJobState, type JobBridge } from '../lib/task_state'
 import { Banner, Button, Card, EmptyState, Field, Modal } from '../ui'
 import { ResultView } from './ResultView'
 
 interface WritePageProps {
   initialDocId: string | null
   /** 页面触发编写任务时调这个，把 jobId 上交给 App 全局 poll */
-  onRegisterJob: (jobId: string | null) => void
+  onRegisterJob: (jobId: string) => void
+  /** T-034：显式关闭当前通道选中任务（返回修改参数/再写一份），回表单 */
+  onCloseJob: () => void
+  /** T-034：任务进行中返回表单，任务继续后台轮询（不关闭、不停止） */
+  onDeselect: () => void
   /** App 全局 poll 回来的最新任务状态（切 tab 也不会丢） */
   activeJob: JobView | null
   /** T-031：App 持有的受控选择态，决定页面展示表单还是任务视图 */
   selectedJobId: string | null
   /** 「查看」聚焦信号，非 0 时滚动并高亮任务卡片 */
   focusNonce: number
+  /** T-034：ResultView 登记补写/重写任务用的全局桥接 */
+  jobBridge?: JobBridge
   onWritten: () => void
 }
 
@@ -188,9 +194,12 @@ function compactForm<T extends object>(form: T): Record<string, string> | null {
 export function WritePage({
   initialDocId,
   onRegisterJob,
+  onCloseJob,
+  onDeselect,
   activeJob,
   selectedJobId,
   focusNonce,
+  jobBridge,
   onWritten,
 }: WritePageProps) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
@@ -235,8 +244,8 @@ export function WritePage({
     }
   }, [])
 
-  // activeJob 是 App 全局 poll 回来的最新状态。终态时本地调 onWritten + refreshProfiles，
-  // App 那边会自动把 runningBid 设为 false 并在 8 秒后清理 activeJob。
+  // activeJob 是 App 全局 poll 回来的最新状态。当前选中任务终态时刷新侧栏计数与资料库；
+  // T-030 起终态快照留存、显式关闭才清理，不再有 grace 定时器。
   useEffect(() => {
     if (!activeJob) return
     if (activeJob.status === 'succeeded') {
@@ -571,6 +580,11 @@ export function WritePage({
                   {p}
                 </p>
               ))}
+              <div className="mt-3 flex justify-end">
+                <Button variant="ghost" onClick={onDeselect}>
+                  返回表单（后台继续）
+                </Button>
+              </div>
             </Card>
           )}
           {localJob?.status === 'failed' && (
@@ -580,7 +594,7 @@ export function WritePage({
                 {lastBody && (
                   <Button onClick={() => startBid(lastBody)}>重试（沿用原参数）</Button>
                 )}
-                <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                <Button variant="secondary" onClick={() => onCloseJob()}>
                   返回修改参数
                 </Button>
               </div>
@@ -588,9 +602,10 @@ export function WritePage({
           )}
           {localJob?.status === 'succeeded' && localJob.bid && (
             <div className="space-y-4">
-              <ResultView bid={localJob.bid} />
+              {/* T-034：补写终态经全局 onSettled 回调刷新侧栏计数（HistoryPage 走 nonce 单路径防双刷） */}
+              <ResultView bid={localJob.bid} jobBridge={jobBridge} onSupplemented={onWritten} />
               {/* T-030：终态结果持续留存，显式复位才回表单（grace 自动清理已移除） */}
-              <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+              <Button variant="secondary" onClick={() => onCloseJob()}>
                 再写一份
               </Button>
             </div>

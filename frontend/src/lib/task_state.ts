@@ -32,6 +32,12 @@ export interface RegisterJobInput {
   kind: JobKind
   jobId: string
   onSettled?: SettledCallback
+  /**
+   * 是否自动选中并置顶到所属页面通道。顶层提交（parse/bid）默认 true；
+   * ResultView 发起的 supplement/rewrite 是依附当前产物视图的后台子任务，
+   * 传 false 避免抢占页面选择而卸载注册回调的组件。
+   */
+  autoSelect?: boolean
 }
 
 /** App 下发给 ResultView 的任务桥接（登记/撤销回调/查快照），避免层层透传多个 props。 */
