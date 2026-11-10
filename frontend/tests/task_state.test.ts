@@ -38,7 +38,6 @@ import {
 } from '../src/lib/task_state'
 import type {
   ChannelSelection,
-  JobKind,
   SettledCallback,
   TrackedJob,
 } from '../src/lib/task_state'
