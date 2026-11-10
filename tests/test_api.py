@@ -446,7 +446,7 @@ def test_bids_submit_and_poll(client, monkeypatch, local_backend):
     parsed.mkdir(parents=True)
     (parsed / "extraction.json").write_text("{}", encoding="utf-8")
 
-    def fake_run_bid_writer(doc_id, profile=None, options=None):
+    def fake_run_bid_writer(doc_id, profile=None, options=None, report=None):
         return BidReport(
             doc_id=doc_id,
             project_name="测试项目",

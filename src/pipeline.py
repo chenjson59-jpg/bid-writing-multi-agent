@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import pymupdf
@@ -35,6 +36,12 @@ BIDS_DIR = UPLOAD_DIR / "bids"
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*)$", re.MULTILINE)
 _ILLEGAL_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+def _noop_report(_message: str) -> None:
+    """进度回调缺省空操作（T-032）：report=None 时保证零行为漂移。"""
+
+
+_NOOP_REPORT: Callable[[str], None] = _noop_report
 
 
 def _sha256(path: Path) -> str:
@@ -308,12 +315,16 @@ def run_bid_writer(
     profile: dict | None = None,
     options: dict | None = None,
     caller=None,
+    report: Callable[[str], None] | None = None,
 ):
     """生成投标文件草稿与覆盖报告（M4 核心流水线）。
 
     `profile` 为投标人资料字典，`options` 为编写参数字典，二者均可空；
-    产物写入 `upload/bids/<doc_id>-<时间戳>/`。
+    产物写入 `upload/bids/<doc_id>-<时间戳>/`。`report` 为可选进度回调（T-032），
+    None 时归一化到模块级空操作，行为与不传时完全一致。
     """
+    # 函数下方局部 BidReport 变量也叫 report，进度回调先别名避免遮蔽
+    progress = report or _NOOP_REPORT
     from dataclasses import asdict
     from datetime import datetime
 
@@ -347,6 +358,7 @@ def run_bid_writer(
         caller=caller,
         schema=schema,
     )
+    progress(f"规划完成：共 {len(plans)} 章")
 
     retriever = ChromaRetriever(
         collection_name(tender.doc_type), doc_id=doc_id
@@ -361,10 +373,12 @@ def run_bid_writer(
         caller,
         max_concurrency=settings.bid_writer_max_concurrency,
         schema=schema,
+        report=progress,
     )
 
     now = datetime.now()
     stage("合并与导出")
+    progress("汇总标书")
     markdown = assemble_markdown(
         tender.project_name,
         profile_obj.company_name,
@@ -395,6 +409,7 @@ def run_bid_writer(
     write_sections(output_dir, drafts)
 
     if write_options.export_word:
+        progress("导出 Word")
         try:
             docx_path = output_dir / "bid.docx"
             markdown_to_docx(
@@ -407,6 +422,7 @@ def run_bid_writer(
             report.docx_path = str(docx_path)
         except Exception as exc:  # noqa: BLE001 - Word 导出失败不阻断 Markdown 与报告
             report.warnings.append(f"Word 导出失败：{exc}")
+            progress("Word 导出失败，已保留 Markdown 与报告")
 
     report.llm_usage = meter.summary()
     report.write_options = asdict(write_options)
