@@ -73,8 +73,9 @@ def run_parse_task(
     parser = options.get("parser", "auto")
     force = options.get("force", False)
 
-    report("解析文档")
+    stage("解析文档")
     doc = run_parse(source_path, parser=parser, force=force)
+    report(f"解析文档（{doc.pages} 页）")
     result = {
         "doc_id": doc.doc_id,
         "doc_type": doc.doc_type,
@@ -86,14 +87,16 @@ def run_parse_task(
 
     extraction = None
     if options.get("extract"):
-        report("结构化抽取")
+        stage("结构化抽取")
         extraction = run_extraction(doc, force=force)
+        report(f"结构化抽取（评分因素 {len(extraction.evaluation_factors)} 项）")
 
     ingest = None
     if options.get("ingest"):
-        report("建立检索索引")
+        stage("建立检索索引")
         project_name = extraction.project_name if extraction else ""
         ingest = ingest_document(doc, project_name=project_name).to_dict()
+        report(f"建立检索索引（片段 {ingest['total']} 条，新增 {ingest['added']}）")
 
     result["extraction"] = _extraction_summary(extraction) if extraction else None
     result["ingest"] = ingest
@@ -135,7 +138,9 @@ def run_bid_task(
 ) -> dict[str, Any]:
     """投标编写核心逻辑：规划 → 分章节写作 → 汇总，返回 bid 摘要。"""
     report("规划章节")
-    result = run_bid_writer(doc_id, profile=profile, options=options)
+    result = run_bid_writer(
+        doc_id, profile=profile, options=options, report=report
+    )
     return {"bid": result.summary()}
 
 
