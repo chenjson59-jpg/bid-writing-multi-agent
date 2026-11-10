@@ -213,6 +213,66 @@ describe('jobEquals', () => {
     const other = { ...base, result: { doc_type: 'tender_file' } } as JobView
     expect(jobEquals(base, other)).toBe(true)
   })
+
+  const progress50 = Array.from({ length: 50 }, (_, index) => `msg-${index + 1}`)
+  const withProgress = (job: JobView, progress: string[] | null | undefined): JobView => ({
+    ...job,
+    progress: progress as string[],
+  })
+
+  it('50 条窗口等长且前 49 条相同、第 50 条不同 → false（旧实现只比长度会误判 true）', () => {
+    const previous = mkJob({ job_id: base.job_id, status: base.status, progress: progress50 })
+    const next = mkJob({
+      job_id: base.job_id,
+      status: base.status,
+      progress: [...progress50.slice(0, 49), 'msg-50-updated'],
+    })
+
+    expect(previous.progress).toHaveLength(50)
+    expect(next.progress).toHaveLength(50)
+    expect(jobEquals(previous, next)).toBe(false)
+  })
+
+  it('50 条窗口整体滚动（丢弃首条并追加新末条）→ false', () => {
+    const previous = mkJob({ job_id: base.job_id, status: base.status, progress: progress50 })
+    const scrolled = mkJob({
+      job_id: base.job_id,
+      status: base.status,
+      progress: [...progress50.slice(1), 'msg-51'],
+    })
+
+    expect(scrolled.progress).toHaveLength(50)
+    expect(jobEquals(previous, scrolled)).toBe(false)
+  })
+
+  it('等长且 progress 内容完全相同（不同引用）→ true，避免无意义重渲染', () => {
+    const first = mkJob({ job_id: base.job_id, status: base.status, progress: [...progress50] })
+    const second = mkJob({ job_id: base.job_id, status: base.status, progress: [...progress50] })
+
+    expect(first.progress).not.toBe(second.progress)
+    expect(jobEquals(first, second)).toBe(true)
+  })
+
+  it('空数组 vs 空数组 → true；单侧空数组 → false', () => {
+    const firstEmpty = mkJob({ job_id: base.job_id, status: base.status, progress: [] })
+    const secondEmpty = mkJob({ job_id: base.job_id, status: base.status, progress: [] })
+    const nonEmpty = mkJob({ job_id: base.job_id, status: base.status, progress: ['msg-1'] })
+
+    expect(jobEquals(firstEmpty, secondEmpty)).toBe(true)
+    expect(jobEquals(firstEmpty, nonEmpty)).toBe(false)
+    expect(jobEquals(nonEmpty, secondEmpty)).toBe(false)
+  })
+
+  it('progress 为 null/undefined 时按空窗口兜底，不抛异常并保持现状判等', () => {
+    const nullProgress = withProgress(base, null)
+    const undefinedProgress = withProgress(base, undefined)
+    const emptyProgress = mkJob({ job_id: base.job_id, status: base.status, progress: [] })
+    const nonEmpty = mkJob({ job_id: base.job_id, status: base.status, progress: ['msg-1'] })
+
+    expect(jobEquals(nullProgress, undefinedProgress)).toBe(true)
+    expect(jobEquals(nullProgress, emptyProgress)).toBe(true)
+    expect(jobEquals(undefinedProgress, nonEmpty)).toBe(false)
+  })
 })
 
 // ============================================================

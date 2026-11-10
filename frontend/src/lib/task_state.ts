@@ -158,17 +158,29 @@ export function hasRunning(jobs: Array<JobView | null | undefined>): boolean {
 
 // ---------- 安全更新：相同状态不触发重渲染 ----------
 
+/** 逐项比较进度窗口；null/undefined 按既有长度兜底语义视为空数组。 */
+function progressEquals(
+  a: string[] | null | undefined,
+  b: string[] | null | undefined,
+): boolean {
+  const left = a ?? []
+  const right = b ?? []
+  return left.length === right.length && left.every((message, index) => message === right[index])
+}
+
 /**
- * 新旧 JobView 比较器：只有 status 变了或 progress 长度变了才算"真的变了"。
- *  App.tsx 的 poller 每 1.5s 调一次，每次都 setState 会触发无意义重渲染。
+ * 新旧 JobView 比较器：job_id、status 或 progress 内容变化才算"真的变了"。
+ *
+ * 方案取舍：只比较末条依赖 progress 严格 append-only 的隐含约束；后端快照固定保留
+ * 最近 50 条，窗口滚动后仍可能出现中间内容变化。50 条短字符串在 1.5s 轮询频率下
+ * 逐项比较成本可忽略，且边角更少，因此选择整体逐项比较。
  */
 export function jobEquals(a: JobView | null, b: JobView | null): boolean {
   if (a === b) return true
   if (!a || !b) return false
   if (a.job_id !== b.job_id) return false
   if (a.status !== b.status) return false
-  if ((a.progress?.length ?? 0) !== (b.progress?.length ?? 0)) return false
-  return true
+  return progressEquals(a.progress, b.progress)
 }
 
 /** 根据 kind 挑选 activeJobs 里对应通道的任务。类型安全（返回 JobView | null）。 */
