@@ -188,16 +188,23 @@ describe('T-031 App 活跃任务状态上移（解析任务链路）', () => {
       }),
     )
     await startParseJob()
-    // 终态后底部任务栏消失（filterRunning 不含终态），结果卡出现
-    expect(screen.queryByRole('button', { name: '查看' })).toBeNull()
+    // T-034：终态任务不再从任务栏消失——终态行留存，同时提供「查看」与显式「关闭」
+    expect(screen.getByRole('button', { name: '查看' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '关闭' })).toBeInTheDocument()
     expect(screen.getByText('解析结果')).toBeInTheDocument()
 
-    // 旧实现此时 8s grace 到期会清空 activeJob 与选择态；T-030 起终态留存、即停轮询
+    // T-030 语义保留：推进超过 8s 不再有 grace 自动回退，终态留存、即停轮询
     await advance(8100)
 
     expect(screen.getByText('任务进度')).toBeInTheDocument()
     expect(screen.getByText('解析结果')).toBeInTheDocument()
     expect(document.querySelector('input[type="file"]')).toBeNull()
+
+    // T-034：显式「关闭」级联清理集合条目与选中态，任务栏移除、页面回到上传表单
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(screen.queryByRole('button', { name: '查看' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '关闭' })).toBeNull()
+    expect(document.querySelector('input[type="file"]')).not.toBeNull()
   })
 })
 
@@ -230,6 +237,8 @@ describe('T-031 WritePage 受控选择态', () => {
       <WritePage
         initialDocId={null}
         onRegisterJob={vi.fn()}
+        onCloseJob={vi.fn()}
+        onDeselect={vi.fn()}
         onWritten={vi.fn()}
         activeJob={activeJob}
         selectedJobId={activeJob ? activeJob.job_id : 'job-bid-pending'}
@@ -273,6 +282,8 @@ describe('T-031 WritePage 受控选择态', () => {
       <WritePage
         initialDocId={null}
         onRegisterJob={vi.fn()}
+        onCloseJob={vi.fn()}
+        onDeselect={vi.fn()}
         onWritten={vi.fn()}
         activeJob={null}
         selectedJobId="job-bid-pending"

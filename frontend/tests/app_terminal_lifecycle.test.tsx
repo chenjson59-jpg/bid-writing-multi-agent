@@ -7,7 +7,7 @@
  * - 交互统一用 fireEvent 派发真实 DOM 事件（假定时器下 user-event 会死等）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 
 vi.mock('../src/api', () => ({
   describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
@@ -246,7 +246,8 @@ describe('T-030 终态生命周期（App 全链路，离线夹具）', () => {
     jobStore['job-bid-2'] = mkJob({ job_id: 'job-bid-2', kind: 'bid', status: 'running' })
     await submitBid()
     expect(vi.mocked(api.createBid)).toHaveBeenCalledTimes(2)
-    expect(screen.getByText('提交中')).toBeInTheDocument()
+    // T-034：任务栏终态/提交中行与页面任务卡都会渲染「提交中」，断言限定到页面卡片作用域
+    expect(within(screen.getByTestId('bid-task-card')).getByText('提交中')).toBeInTheDocument()
     await advance(1600)
     expect(screen.getByText('编写进度')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '演示项目' })).toBeNull()

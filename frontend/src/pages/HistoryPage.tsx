@@ -10,6 +10,7 @@ import {
 import type { BidHistoryItem, TaskHistoryItem } from '../types'
 import { Badge, Banner, Button, Card, EmptyState, Spinner } from '../ui'
 import { ResultView } from './ResultView'
+import type { JobBridge } from '../lib/task_state'
 
 const KIND_LABEL: Record<string, string> = {
   parse: '解析',
@@ -43,10 +44,13 @@ function taskDetail(task: TaskHistoryItem): string {
 export function HistoryPage({
   onChanged,
   refreshNonce = 0,
+  jobBridge,
 }: {
   onChanged?: () => void
   /** T-030：App 观测到任务终态迁移时自增；变化才触发 reload，挂载首载不重复请求 */
   refreshNonce?: number
+  /** T-034：展开区 ResultView 登记补写/重写任务用的全局桥接 */
+  jobBridge?: JobBridge
 }) {
   const [view, setView] = useState<'bids' | 'tasks'>('bids')
   const [items, setItems] = useState<BidHistoryItem[]>([])
@@ -210,7 +214,8 @@ export function HistoryPage({
                   </div>
                   {expanded && (
                     <div className="mt-4">
-                      <ResultView bid={s} bidId={item.bid_id} onSupplemented={load} />
+                      {/* T-034：补写终态由全局终态事件（refreshNonce）统一刷新本页，不再传组件本地 onSupplemented */}
+                      <ResultView bid={s} bidId={item.bid_id} jobBridge={jobBridge} />
                     </div>
                   )}
                 </Card>

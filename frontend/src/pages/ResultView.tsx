@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   bidFileUrl,
   createSupplement,
   describeError,
-  getJob,
   getBid,
   getSection,
   listSections,
@@ -12,7 +11,8 @@ import {
   sectionFileUrl,
 } from '../api'
 import { getDesktop } from '../desktop'
-import type { BidSummary, SectionDetail, SectionInfo } from '../types'
+import type { BidSummary, JobView, SectionDetail, SectionInfo } from '../types'
+import type { JobBridge } from '../lib/task_state'
 import {
   coverageLayers,
   isRetrievalDegraded,
@@ -48,28 +48,36 @@ export function ResultView({
   bidId,
   onSupplemented,
   onChanged,
+  jobBridge,
 }: {
   bid: BidSummary
   bidId?: string
   onSupplemented?: () => void
   onChanged?: () => void
+  /** T-034：补写/重写任务登记到全局 poller 的桥接；未接入时仅保留触发按钮本地态 */
+  jobBridge?: JobBridge
 }) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewText, setPreviewText] = useState('')
   const [loading, setLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
-  const [supplementState, setSupplementState] = useState<'idle' | 'running' | 'done' | 'failed'>(
-    'idle',
-  )
-  const [supplementMsg, setSupplementMsg] = useState<string | null>(null)
+  // T-034：补写/重写不再持有私有轮询，只登记 jobId；状态与文案由全局快照派生
+  const [supplementJobId, setSupplementJobId] = useState<string | null>(null)
+  const [supplementCreateError, setSupplementCreateError] = useState<string | null>(null)
+  const [rewriteJobId, setRewriteJobId] = useState<string | null>(null)
+  const [rewriteCreateError, setRewriteCreateError] = useState<string | null>(null)
+  const [rewriteSubmitText, setRewriteSubmitText] = useState<string | null>(null)
 
   // 章节级编辑（P1-2）：本地覆盖最新摘要，避免依赖父组件重新拉取
   const [override, setOverride] = useState<BidSummary | null>(null)
   const [sections, setSections] = useState<SectionInfo[]>([])
   const [sectionError, setSectionError] = useState<string | null>(null)
   const [busySection, setBusySection] = useState<string | null>(null)
-  const [rewriteState, setRewriteState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
-  const [rewriteMsg, setRewriteMsg] = useState<string | null>(null)
+
+  // 本实例登记过的全部跟踪 jobId，卸载时统一撤销终态回调（任务本身继续全局轮询）
+  const trackedJobIdsRef = useRef<string[]>([])
+  const bridgeRef = useRef(jobBridge)
+  bridgeRef.current = jobBridge
 
   const [editing, setEditing] = useState<SectionDetail | null>(null)
   const [editText, setEditText] = useState('')
@@ -77,8 +85,6 @@ export function ResultView({
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
-  const timerRef = useRef<number | null>(null)
-  const rewriteTimerRef = useRef<number | null>(null)
   const id = bidId ?? bidIdFromOutputDir(bid.output_dir) ?? ''
   const data = override ?? bid
   const desktop = getDesktop()
@@ -101,61 +107,77 @@ export function ResultView({
     }
   }, [id])
 
+  // T-034：卸载时撤销本实例登记的全部终态回调；任务仍在全局集合中继续轮询，
+  // 重挂后凭 mount 拉取（listSections）与全局终态事件恢复数据，不依赖旧回调补账
   useEffect(
     () => () => {
-      if (timerRef.current !== null) window.clearInterval(timerRef.current)
-      if (rewriteTimerRef.current !== null) window.clearInterval(rewriteTimerRef.current)
+      trackedJobIdsRef.current.forEach((jobId) => bridgeRef.current?.revoke(jobId))
     },
     [],
   )
 
-  function stopPolling() {
-    if (timerRef.current !== null) window.clearInterval(timerRef.current)
-    timerRef.current = null
+  // 全局快照派生：无 jobId 为 idle；快照缺失或 pending/running 为 running；终态为 done/failed
+  const supplementJob = supplementJobId ? jobBridge?.find(supplementJobId) ?? null : null
+  const rewriteJob = rewriteJobId ? jobBridge?.find(rewriteJobId) ?? null : null
+
+  function asyncState(
+    trackedId: string | null,
+    job: JobView | null,
+  ): 'idle' | 'running' | 'done' | 'failed' {
+    if (!trackedId) return 'idle'
+    if (!job || job.status === 'pending' || job.status === 'running') return 'running'
+    return job.status === 'succeeded' ? 'done' : 'failed'
   }
 
-  function stopRewritePolling() {
-    if (rewriteTimerRef.current !== null) window.clearInterval(rewriteTimerRef.current)
-    rewriteTimerRef.current = null
-  }
+  const supplementState = asyncState(supplementJobId, supplementJob)
+  const rewriteState = asyncState(rewriteJobId, rewriteJob)
 
-  function pollSupplement(jobId: string) {
-    timerRef.current = window.setInterval(async () => {
-      try {
-        const job = await getJob(jobId)
-        if (job.status === 'succeeded') {
-          stopPolling()
-          const newId = bidIdFromOutputDir(job.bid?.output_dir ?? '') ?? ''
-          setSupplementState('done')
-          setSupplementMsg(`补写完成，新产物 ${newId} 已生成，可在「标书历史」对比覆盖率`)
-          onSupplemented?.()
-        } else if (job.status === 'failed') {
-          stopPolling()
-          setSupplementState('failed')
-          setSupplementMsg(job.error ?? '补写失败')
-        }
-      } catch (e) {
-        stopPolling()
-        setSupplementState('failed')
-        setSupplementMsg(describeError(e))
-      }
-    }, 2000)
-  }
+  // 终态文案同样由全局快照派生，回调不做任何 setState，杜绝对已卸载组件 setState
+  const supplementMsg = supplementJobId
+    ? supplementState === 'done'
+      ? `补写完成，新产物 ${bidIdFromOutputDir(supplementJob?.bid?.output_dir ?? '') ?? ''} 已生成，可在「标书历史」对比覆盖率`
+      : supplementState === 'failed'
+        ? (supplementJob?.error ?? '补写失败')
+        : '已提交补写任务，正在等待新章节生成…'
+    : supplementCreateError
+
+  const rewriteMsg = rewriteJobId
+    ? rewriteState === 'done'
+      ? '章节重写完成，产物已原地更新'
+      : rewriteState === 'failed'
+        ? (rewriteJob?.error ?? '章节重写失败')
+        : (rewriteSubmitText ?? '已提交章节重写任务…')
+    : rewriteCreateError
+
+  // 补写终态回调：只做列表刷新；组件卸载时已由全局注册表 revoke
+  const handleSupplementSettled = useCallback(
+    (job: JobView) => {
+      if (job.status === 'succeeded') onSupplemented?.()
+    },
+    [onSupplemented],
+  )
 
   async function supplement() {
     if (!id) return
-    setSupplementState('running')
-    setSupplementMsg('已提交补写任务，正在等待新章节生成…')
+    setSupplementCreateError(null)
     try {
       const accepted = await createSupplement(id)
-      pollSupplement(accepted.job_id)
+      setSupplementJobId(accepted.job_id)
+      trackedJobIdsRef.current.push(accepted.job_id)
+      // 轮询职责上移 App 全局 poller，本组件只保留触发与终态文案派生
+      // 后台子任务：不抢占当前产物视图的选择态，避免本组件被卸载而撤销回调
+      jobBridge?.track({
+        kind: 'supplement',
+        jobId: accepted.job_id,
+        onSettled: handleSupplementSettled,
+        autoSelect: false,
+      })
     } catch (e) {
-      setSupplementState('failed')
-      setSupplementMsg(describeError(e))
+      setSupplementCreateError(describeError(e))
     }
   }
 
-  async function refreshSections() {
+  const refreshSections = useCallback(async () => {
     if (!id) return
     try {
       setSections(await listSections(id))
@@ -163,9 +185,9 @@ export function ResultView({
     } catch (e) {
       setSectionError(describeError(e))
     }
-  }
+  }, [id])
 
-  async function refreshSummary() {
+  const refreshSummary = useCallback(async () => {
     if (!id) return
     try {
       const item = await getBid(id)
@@ -175,41 +197,36 @@ export function ResultView({
     }
     await refreshSections()
     onChanged?.()
-  }
+  }, [id, onChanged, refreshSections])
 
-  function pollRewrite(jobId: string) {
-    rewriteTimerRef.current = window.setInterval(async () => {
-      try {
-        const job = await getJob(jobId)
-        if (job.status === 'succeeded') {
-          stopRewritePolling()
-          setRewriteState('done')
-          setRewriteMsg('章节重写完成，产物已原地更新')
-          await refreshSummary()
-        } else if (job.status === 'failed') {
-          stopRewritePolling()
-          setRewriteState('failed')
-          setRewriteMsg(job.error ?? '章节重写失败')
-        }
-      } catch (e) {
-        stopRewritePolling()
-        setRewriteState('failed')
-        setRewriteMsg(describeError(e))
-      }
-    }, 2000)
-  }
+  // 重写终态回调：刷新摘要与章节（原私有轮询的终态职责）；卸载时已被 revoke
+  const handleRewriteSettled = useCallback(
+    (job: JobView) => {
+      if (job.status !== 'succeeded') return
+      void refreshSummary()
+    },
+    [refreshSummary],
+  )
 
   async function rewrite(sectionIds: string[] | null) {
     if (!id) return
     if (sectionIds === null && !window.confirm('重写全部未锁定章节？锁定章节会保持不变。')) return
-    setRewriteState('running')
-    setRewriteMsg(sectionIds ? '已提交单章重写任务…' : '已提交批量重写任务…')
+    setRewriteCreateError(null)
+    setRewriteSubmitText(sectionIds ? '已提交单章重写任务…' : '已提交批量重写任务…')
     try {
       const accepted = await rewriteSections(id, sectionIds)
-      pollRewrite(accepted.job_id)
+      setRewriteJobId(accepted.job_id)
+      trackedJobIdsRef.current.push(accepted.job_id)
+      // 轮询职责上移 App 全局 poller；终态文案由 rewriteJob 快照派生
+      // 后台子任务：不抢占当前产物视图的选择态，避免本组件被卸载而撤销回调
+      jobBridge?.track({
+        kind: 'rewrite',
+        jobId: accepted.job_id,
+        onSettled: handleRewriteSettled,
+        autoSelect: false,
+      })
     } catch (e) {
-      setRewriteState('failed')
-      setRewriteMsg(describeError(e))
+      setRewriteCreateError(describeError(e))
     }
   }
 
@@ -444,7 +461,9 @@ export function ResultView({
           </div>
           {supplementMsg && (
             <div className="mt-3">
-              <Banner kind={supplementState === 'failed' ? 'error' : 'info'}>{supplementMsg}</Banner>
+              <Banner kind={supplementState === 'failed' || supplementCreateError ? 'error' : 'info'}>
+              {supplementMsg}
+            </Banner>
             </div>
           )}
         </Card>
@@ -473,7 +492,9 @@ export function ResultView({
             <div className="mt-3 space-y-2">
               {sectionError && <Banner kind="error">{sectionError}</Banner>}
               {rewriteMsg && (
-                <Banner kind={rewriteState === 'failed' ? 'error' : 'info'}>{rewriteMsg}</Banner>
+                <Banner kind={rewriteState === 'failed' || rewriteCreateError ? 'error' : 'info'}>
+                {rewriteMsg}
+              </Banner>
               )}
             </div>
           )}

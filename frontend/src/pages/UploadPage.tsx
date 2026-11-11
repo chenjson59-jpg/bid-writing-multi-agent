@@ -10,7 +10,11 @@ const FOCUS_HIGHLIGHT_MS = 2000
 
 interface UploadPageProps {
   /** 页面提交 parse 任务时调这个，把 jobId 上交给 App 全局 poll */
-  onRegisterJob: (jobId: string | null) => void
+  onRegisterJob: (jobId: string) => void
+  /** T-034：显式关闭当前通道选中任务（取消/失败/再上传），回表单 */
+  onCloseJob: () => void
+  /** T-034：任务进行中返回表单，任务继续后台轮询（不关闭、不停止） */
+  onDeselect: () => void
   /** App 全局 poll 回来的最新任务状态（切 tab 也不会丢） */
   activeJob: JobView | null
   /** T-031：App 持有的受控选择态，决定页面展示表单还是任务视图 */
@@ -23,6 +27,8 @@ interface UploadPageProps {
 
 export function UploadPage({
   onRegisterJob,
+  onCloseJob,
+  onDeselect,
   activeJob,
   selectedJobId,
   focusNonce,
@@ -114,7 +120,7 @@ export function UploadPage({
       } else {
         setError(describeError(e))
       }
-      onRegisterJob(null)
+      onCloseJob()
     } finally {
       setUploading(false)
       abortRef.current = null
@@ -124,7 +130,7 @@ export function UploadPage({
   function cancelUpload() {
     abortRef.current?.abort()
     setUploading(false)
-    onRegisterJob(null)
+    onCloseJob()
   }
 
   return (
@@ -209,6 +215,15 @@ export function UploadPage({
           data-testid="parse-task-card"
         >
           <Card title="任务进度">
+            {(view.mode === 'submitting' ||
+              job?.status === 'pending' ||
+              job?.status === 'running') && (
+              <div className="mb-3 flex justify-end">
+                <Button variant="ghost" onClick={onDeselect}>
+                  返回表单（后台继续）
+                </Button>
+              </div>
+            )}
             {job ? (
               <div className="space-y-3">
                 <p className="text-sm text-slate-300">
@@ -228,7 +243,7 @@ export function UploadPage({
                 {job.error && <Banner kind="error">{job.error}</Banner>}
                 {job.status === 'failed' && (
                   <div className="mt-3">
-                    <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                    <Button variant="secondary" onClick={() => onCloseJob()}>
                       重新上传
                     </Button>
                   </div>
@@ -263,7 +278,7 @@ export function UploadPage({
                 ) : (
                   <p className="text-sm text-amber-400">未开启结构化抽取，无法编写标书。</p>
                 )}
-                <Button variant="secondary" onClick={() => onRegisterJob(null)}>
+                <Button variant="secondary" onClick={() => onCloseJob()}>
                   再上传一个
                 </Button>
               </div>

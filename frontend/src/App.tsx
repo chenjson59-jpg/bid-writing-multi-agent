@@ -1,19 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getHealth, getJob, listBids, listDocuments } from './api'
 import { HistoryPage } from './pages/HistoryPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { UploadPage } from './pages/UploadPage'
 import { WritePage } from './pages/WritePage'
 import {
+  closeJobById,
   decidePollOutcome,
+  EMPTY_SELECTION,
+  findTrackedJob,
   isRunning,
-  jobEquals,
+  jobChannel,
   kindLabel,
+  markJobSettled,
   nextHistoryRefreshNonce,
-  planJobJump,
+  pollableJobs,
+  putSettledCallback,
+  registerTrackedJob,
+  revokeSettledCallback,
+  selectedJobSnapshot,
+  selectionAfterClose,
+  selectionAfterRegister,
   statusLabel,
-  type JobKind,
+  takeSettledCallback,
+  upsertJobSnapshot,
+  type ChannelSelection,
+  type JobBridge,
+  type JobCollection,
+  type PageChannel,
+  type RegisterJobInput,
+  type SettledCallback,
   type Tab,
+  type TrackedJob,
 } from './lib/task_state'
 import type { HealthInfo, JobView } from './types'
 
@@ -46,23 +64,20 @@ function StatusRow({ label, state, detail }: { label: string; state: HealthState
   )
 }
 
-// 全局任务进度条：fixed 贴底，任何页面都能看到，切 tab 不会丢
+// 全局任务进度条：fixed 贴底，任何页面都能看到，切 tab 不会丢。
+// T-034：渲染多任务集合全部条目（含终态留存行），终态行提供显式「关闭」。
 function GlobalTaskBar({
-  parseJob,
-  bidJob,
+  jobs,
   onJumpTo,
+  onClose,
 }: {
-  parseJob: JobView | null
-  bidJob: JobView | null
-  onJumpTo: (kind: JobKind) => void
+  jobs: TrackedJob[]
+  onJumpTo: (jobId: string) => void
+  onClose: (jobId: string) => void
 }) {
-  // 显式带上 kind 槽位，保证「查看」回调类型安全（activeJobs 只有 parse/bid 两槽）
-  const slots: { kind: JobKind; job: JobView | null }[] = [
-    { kind: 'parse', job: parseJob },
-    { kind: 'bid', job: bidJob },
-  ]
-  const active = slots.filter((s): s is { kind: JobKind; job: JobView } => isRunning(s.job))
-  if (active.length === 0) return null
+  if (jobs.length === 0) return null
+  const runningCount = jobs.filter((entry) => isRunning(entry.job)).length
+  const pendingCount = jobs.filter((entry) => entry.job?.status === 'pending').length
 
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 flex justify-center p-3">
@@ -70,48 +85,65 @@ function GlobalTaskBar({
         <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2 text-xs">
           <span className="flex items-center gap-1 text-sky-400">
             <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
-            正在执行 {active.length} 个任务
+            任务 {jobs.length} 个
+            {runningCount > 0 && <span className="text-slate-400">· 运行中 {runningCount}</span>}
+            {pendingCount > 0 && <span className="text-amber-400">· 排队 {pendingCount}</span>}
           </span>
         </div>
         <ul>
-          {active.map(({ kind, job }) => (
-            <li
-              key={job.job_id}
-              className="flex items-center gap-3 border-b border-slate-800/70 px-4 py-2 text-sm last:border-b-0"
-            >
-              <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
-                {kindLabel(job.kind)}
-              </span>
-              <span className="flex-1 truncate text-slate-300">
-                {job.source_name || '任务 ' + job.job_id.slice(0, 8)}
-              </span>
-              <span
-                className={
-                  job.status === 'running'
-                    ? 'text-sky-400'
-                    : job.status === 'pending'
-                      ? 'text-amber-400'
-                      : job.status === 'succeeded'
-                        ? 'text-emerald-400'
-                        : 'text-rose-400'
-                }
+          {jobs.map((entry) => {
+            const job = entry.job
+            const status = job?.status ?? null
+            return (
+              <li
+                key={entry.jobId}
+                className="flex items-center gap-3 border-b border-slate-800/70 px-4 py-2 text-sm last:border-b-0"
               >
-                {statusLabel(job.status)}
-              </span>
-              {job.status === 'running' && job.progress.length > 0 && (
-                <span className="max-w-[220px] truncate text-xs text-slate-500">
-                  {job.progress[job.progress.length - 1]}
+                <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                  {kindLabel(entry.kind)}
                 </span>
-              )}
-              <button
-                type="button"
-                className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                onClick={() => onJumpTo(kind)}
-              >
-                查看
-              </button>
-            </li>
-          ))}
+                <span className="flex-1 truncate text-slate-300">
+                  {job?.source_name || '任务 ' + entry.jobId.slice(0, 8)}
+                </span>
+                <span
+                  className={
+                    status === 'running'
+                      ? 'text-sky-400'
+                      : status === 'pending'
+                        ? 'text-amber-400'
+                        : status === 'succeeded'
+                          ? 'text-emerald-400'
+                          : status === 'failed'
+                            ? 'text-rose-400'
+                            : 'text-amber-400'
+                  }
+                >
+                  {job ? statusLabel(job.status) : '提交中'}
+                </span>
+                {job?.status === 'running' && job.progress.length > 0 && (
+                  <span className="max-w-[220px] truncate text-xs text-slate-500">
+                    {job.progress[job.progress.length - 1]}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  onClick={() => onJumpTo(entry.jobId)}
+                >
+                  查看
+                </button>
+                {entry.settled && (
+                  <button
+                    type="button"
+                    className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    onClick={() => onClose(entry.jobId)}
+                  >
+                    关闭
+                  </button>
+                )}
+              </li>
+            )
+          })}
         </ul>
       </div>
     </div>
@@ -127,64 +159,113 @@ export default function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null)
   const [healthDown, setHealthDown] = useState(false)
 
-  // ---------- 全局任务状态：App 永远存活，切 tab 不卸载 ----------
-  const [activeJobs, setActiveJobs] = useState<Record<JobKind, JobView | null>>({
-    parse: null,
-    bid: null,
+  // ---------- T-034 全局多任务集合：App 永远存活，切 tab 不卸载 ----------
+  // 有序数组（最新登记在前），以 job_id 为身份；终态条目留存到显式关闭
+  const [jobs, setJobs] = useState<JobCollection>([])
+  // 两个页面通道各自的当前选中 jobId（parse→upload，bid/supplement/rewrite→write）
+  const [selection, setSelection] = useState<ChannelSelection>(EMPTY_SELECTION)
+  // 「查看」聚焦信号：按通道自增，页面 effect 据此滚动/高亮任务卡片
+  const [focusNonces, setFocusNonces] = useState<Record<PageChannel, number>>({
+    upload: 0,
+    write: 0,
   })
-  // 每种任务对应的后端 job_id（存在 ref 里避免闭包陈旧）
-  const activeJobIdRef = useRef<Record<JobKind, string | null>>({ parse: null, bid: null })
-  // T-031：任务选择态上移 App。页面不再自持 jobId，重挂后凭此恢复任务视图（单槽/kind）
-  const [selectedJobIds, setSelectedJobIds] = useState<Record<JobKind, string | null>>({
-    parse: null,
-    bid: null,
-  })
-  // 「查看」聚焦信号：每次点击自增，页面 effect 据此滚动/高亮任务卡片
-  const [focusNonces, setFocusNonces] = useState<Record<JobKind, number>>({ parse: 0, bid: 0 })
-  // T-030：终态事件驱动的历史页刷新信号，仅在非终态→终态迁移时自增（无任务不空转）
+  // T-030：终态事件驱动的历史页刷新信号，任意条目终态迁移时自增（无任务不空转）
   const [historyRefreshNonce, setHistoryRefreshNonce] = useState(0)
-  // poller 上一次观测值，用于终态迁移判定；放 ref 而非 setState updater，避免 StrictMode 双调用
-  const pollPrevRef = useRef<Record<JobKind, JobView | null>>({ parse: null, bid: null })
 
-  // 注册一个新的活跃任务（页面触发任务后调这个）
-  const registerJob = useCallback((kind: JobKind, jobId: string | null) => {
-    activeJobIdRef.current[kind] = jobId
-    // T-030：复位迁移观测，保证新任务的终态迁移一定能被识别
-    pollPrevRef.current[kind] = null
-    // 选择态立即置位：首帧 poll 未返回时页面也能展示「提交中」
-    setSelectedJobIds((prev) => ({ ...prev, [kind]: jobId }))
-    if (!jobId) {
-      // 取消/出错/返回修改参数/显式复位：立即清掉活跃任务与选择态，页面回表单
-      setActiveJobs((prev) => ({ ...prev, [kind]: null }))
+  // poller 与回调通过 ref 读最新集合，避免 interval 闭包陈旧
+  const jobsRef = useRef<JobCollection>([])
+  const selectionRef = useRef<ChannelSelection>(EMPTY_SELECTION)
+  useEffect(() => {
+    jobsRef.current = jobs
+  }, [jobs])
+  useEffect(() => {
+    selectionRef.current = selection
+  }, [selection])
+  // 每个 jobId 的上一次观测值（终态迁移判定）；登记时置 null，关闭时删除
+  const pollPrevRef = useRef<Map<string, JobView | null>>(new Map())
+  // 终态一次性回调注册表（补写/重写的数据刷新），闭包不进 React state
+  const settledCallbacksRef = useRef<Map<string, SettledCallback>>(new Map())
+
+  // 登记新任务：追加置顶 + 通道自动选中；可携带终态一次性回调
+  const registerJob = useCallback((input: RegisterJobInput) => {
+    pollPrevRef.current.set(input.jobId, null)
+    if (input.onSettled) {
+      putSettledCallback(settledCallbacksRef.current, input.jobId, input.onSettled)
+    }
+    const entry: TrackedJob = { jobId: input.jobId, kind: input.kind, job: null, settled: false }
+    // 同步刷新 ref：poller 不能依赖 effect 时序，否则注册后首个 tick 可能漏轮询
+    const nextJobs = registerTrackedJob(jobsRef.current, entry)
+    jobsRef.current = nextJobs
+    setJobs(nextJobs)
+    // 顶层提交自动选中；补写/重写等后台子任务不抢占当前页面选择（autoSelect=false）
+    if (input.autoSelect !== false) {
+      setSelection((prev) => selectionAfterRegister(prev, jobChannel(input.kind), input.jobId))
     }
   }, [])
 
-  // 统一 poller：每秒 GET 每个活跃 jobId，更新 activeJobs
+  // 组件卸载时撤销终态回调（任务本身继续全局轮询），不操作已卸载组件
+  const revokeSettled = useCallback((jobId: string) => {
+    revokeSettledCallback(settledCallbacksRef.current, jobId)
+  }, [])
+
+  // 显式关闭指定任务：集合 / 观测值 / 回调 / 选中态级联清理
+  const closeJob = useCallback((jobId: string) => {
+    const tracked = findTrackedJob(jobsRef.current, jobId)
+    pollPrevRef.current.delete(jobId)
+    revokeSettledCallback(settledCallbacksRef.current, jobId)
+    if (tracked) {
+      setSelection((prev) => selectionAfterClose(prev, jobChannel(tracked.kind), jobId))
+    }
+    const nextJobs = closeJobById(jobsRef.current, jobId)
+    jobsRef.current = nextJobs
+    setJobs(nextJobs)
+  }, [])
+
+  // 页面复位按钮：关闭当前通道选中的任务并回表单，不自动选中集合内其他任务
+  const closeSelectedOnChannel = useCallback(
+    (channel: PageChannel) => {
+      const jobId = selectionRef.current[channel]
+      if (jobId) closeJob(jobId)
+    },
+    [closeJob],
+  )
+
+  // 任务进行中返回表单：只清选择态，任务继续后台轮询、任务栏可达，便于再次提交
+  const deselectChannel = useCallback((channel: PageChannel) => {
+    const next = { ...selectionRef.current, [channel]: null }
+    selectionRef.current = next
+    setSelection(next)
+  }, [])
+
+  // 统一 poller：1.5s 遍历全部未终态条目，逐个 getJob，终态即停且快照留存
   useEffect(() => {
     const tick = async () => {
-      const kinds: JobKind[] = ['parse', 'bid']
-      for (const kind of kinds) {
-        const jobId = activeJobIdRef.current[kind]
-        if (!jobId) continue
+      for (const tracked of pollableJobs(jobsRef.current)) {
+        const { jobId } = tracked
         try {
           const job = await getJob(jobId)
-          // T-030：终态即停轮询、快照留存；仅在非终态→终态迁移时通知历史页刷新
-          const outcome = decidePollOutcome(pollPrevRef.current[kind], job)
-          pollPrevRef.current[kind] = job
-          setActiveJobs((prev) => {
-            if (jobEquals(prev[kind], job)) return prev
-            return { ...prev, [kind]: job }
-          })
-          if (outcome.stopPolling) {
-            // 终态后不再请求该 job；activeJobs/selectedJobIds 保留，清理只允许来自
-            // registerJob(kind, null) 的用户显式复位，定时器不得再改变页面状态
-            activeJobIdRef.current[kind] = null
-          }
+          const prev = pollPrevRef.current.get(jobId) ?? null
+          // T-030 纯函数：终态即停 + 仅在非终态→终态迁移点报告事件
+          const outcome = decidePollOutcome(prev, job)
+          pollPrevRef.current.set(jobId, job)
+          setJobs((prev) => upsertJobSnapshot(prev, jobId, job))
           if (outcome.terminalTransition) {
             setHistoryRefreshNonce((n) => nextHistoryRefreshNonce(n, true))
+            // 回调在 setState updater 之外调用，规避 StrictMode 双调用；take 即删保证一次
+            const callback = takeSettledCallback(settledCallbacksRef.current, jobId)
+            if (callback) {
+              try {
+                callback(job)
+              } catch (error) {
+                console.error('settled callback failed', error)
+              }
+            }
+          }
+          if (outcome.stopPolling) {
+            setJobs((prev) => markJobSettled(prev, jobId))
           }
         } catch {
-          // poll 失败（网络抖动）静默跳过，等下一轮
+          // poll 失败（网络抖动）静默跳过，prev/settled 不变，下一轮继续
         }
       }
     }
@@ -192,9 +273,23 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [])
 
-  // 派生：运行中 → 左侧 nav 蓝点
-  const runningParse = isRunning(activeJobs.parse)
-  const runningBid = isRunning(activeJobs.bid)
+  // 派生：运行中 → 左侧 nav 蓝点（按页面通道聚合）
+  const runningParse = jobs.some(
+    (entry) => jobChannel(entry.kind) === 'upload' && isRunning(entry.job),
+  )
+  const runningBid = jobs.some(
+    (entry) => jobChannel(entry.kind) === 'write' && isRunning(entry.job),
+  )
+
+  // ResultView 经此桥接登记 supplement/rewrite 任务、撤销回调、查全局快照
+  const jobBridge = useMemo<JobBridge>(
+    () => ({
+      track: (input) => registerJob(input),
+      revoke: revokeSettled,
+      find: (jobId) => selectedJobSnapshot(jobs, jobId),
+    }),
+    [jobs, registerJob, revokeSettled],
+  )
 
   // ---------- 健康检查（每 5 秒） ----------
   useEffect(() => {
@@ -263,19 +358,20 @@ export default function App() {
           : 'down'
         : 'idle'
 
-  // 底部任务栏「查看」：切到目标 tab（若需要）并通知页面滚动/高亮任务卡片
-  const jumpToJob = useCallback(
-    (kind: JobKind) => {
-      const decision = planJobJump(kind, tab)
-      setTab(decision.tab)
-      setFocusNonces((prev) => ({ ...prev, [kind]: prev[kind] + 1 }))
-    },
-    [tab],
-  )
+  // 底部任务栏「查看」：定位到具体 jobId——切通道 tab、选中该任务并触发聚焦高亮
+  const jumpToJob = useCallback((jobId: string) => {
+    const tracked = findTrackedJob(jobsRef.current, jobId)
+    if (!tracked) return
+    const channel = jobChannel(tracked.kind)
+    const next = selectionAfterRegister(selectionRef.current, channel, jobId)
+    selectionRef.current = next
+    setSelection(next)
+    setTab(channel)
+    setFocusNonces((prev) => ({ ...prev, [channel]: prev[channel] + 1 }))
+  }, [])
 
-  // 页面底部 padding，防止被 GlobalTaskBar 遮住
-  const hasActiveTask = runningParse || runningBid
-  const bottomPad = hasActiveTask ? 'pb-24' : ''
+  // 页面底部 padding，防止被 GlobalTaskBar 遮住（终态留存行仍在任务栏）
+  const bottomPad = jobs.length > 0 ? 'pb-24' : ''
 
   return (
     <div className={`flex min-h-screen bg-slate-950 text-slate-100 ${bottomPad}`}>
@@ -336,10 +432,12 @@ export default function App() {
       <main className="flex-1 overflow-auto p-6">
         {tab === 'upload' && (
           <UploadPage
-            onRegisterJob={(jobId) => registerJob('parse', jobId)}
-            activeJob={activeJobs.parse}
-            selectedJobId={selectedJobIds.parse}
-            focusNonce={focusNonces.parse}
+            onRegisterJob={(jobId) => registerJob({ kind: 'parse', jobId })}
+            onCloseJob={() => closeSelectedOnChannel('upload')}
+            onDeselect={() => deselectChannel('upload')}
+            activeJob={selectedJobSnapshot(jobs, selection.upload)}
+            selectedJobId={selection.upload}
+            focusNonce={focusNonces.upload}
             onUploaded={refreshCounts}
             onWrite={goWrite}
           />
@@ -350,19 +448,26 @@ export default function App() {
         {tab === 'write' && (
           <WritePage
             initialDocId={selectedDocId}
-            onRegisterJob={(jobId) => registerJob('bid', jobId)}
-            activeJob={activeJobs.bid}
-            selectedJobId={selectedJobIds.bid}
-            focusNonce={focusNonces.bid}
+            onRegisterJob={(jobId) => registerJob({ kind: 'bid', jobId })}
+            onCloseJob={() => closeSelectedOnChannel('write')}
+            onDeselect={() => deselectChannel('write')}
+            activeJob={selectedJobSnapshot(jobs, selection.write)}
+            selectedJobId={selection.write}
+            focusNonce={focusNonces.write}
+            jobBridge={jobBridge}
             onWritten={refreshCounts}
           />
         )}
         {tab === 'history' && (
-          <HistoryPage onChanged={refreshCounts} refreshNonce={historyRefreshNonce} />
+          <HistoryPage
+            onChanged={refreshCounts}
+            refreshNonce={historyRefreshNonce}
+            jobBridge={jobBridge}
+          />
         )}
       </main>
 
-      <GlobalTaskBar parseJob={activeJobs.parse} bidJob={activeJobs.bid} onJumpTo={jumpToJob} />
+      <GlobalTaskBar jobs={jobs} onJumpTo={jumpToJob} onClose={closeJob} />
     </div>
   )
 }
