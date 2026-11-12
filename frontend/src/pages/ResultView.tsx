@@ -12,7 +12,7 @@ import {
 } from '../api'
 import { getDesktop } from '../desktop'
 import type { BidSummary, JobView, SectionDetail, SectionInfo } from '../types'
-import type { JobBridge } from '../lib/task_state'
+import { deriveSubTaskState, type JobBridge } from '../lib/task_state'
 import {
   coverageLayers,
   isRetrievalDegraded,
@@ -116,37 +116,33 @@ export function ResultView({
     [],
   )
 
-  // 全局快照派生：无 jobId 为 idle；快照缺失或 pending/running 为 running；终态为 done/failed
+  // 全局快照派生：无 jobId 为 idle；条目被显式关闭为 closed；快照缺失或 pending/running 为 running
+  const supplementExists = supplementJobId ? (jobBridge?.has(supplementJobId) ?? true) : true
+  const rewriteExists = rewriteJobId ? (jobBridge?.has(rewriteJobId) ?? true) : true
   const supplementJob = supplementJobId ? jobBridge?.find(supplementJobId) ?? null : null
   const rewriteJob = rewriteJobId ? jobBridge?.find(rewriteJobId) ?? null : null
-
-  function asyncState(
-    trackedId: string | null,
-    job: JobView | null,
-  ): 'idle' | 'running' | 'done' | 'failed' {
-    if (!trackedId) return 'idle'
-    if (!job || job.status === 'pending' || job.status === 'running') return 'running'
-    return job.status === 'succeeded' ? 'done' : 'failed'
-  }
-
-  const supplementState = asyncState(supplementJobId, supplementJob)
-  const rewriteState = asyncState(rewriteJobId, rewriteJob)
+  const supplementState = deriveSubTaskState(supplementJobId, supplementExists, supplementJob)
+  const rewriteState = deriveSubTaskState(rewriteJobId, rewriteExists, rewriteJob)
 
   // 终态文案同样由全局快照派生，回调不做任何 setState，杜绝对已卸载组件 setState
   const supplementMsg = supplementJobId
-    ? supplementState === 'done'
-      ? `补写完成，新产物 ${bidIdFromOutputDir(supplementJob?.bid?.output_dir ?? '') ?? ''} 已生成，可在「标书历史」对比覆盖率`
-      : supplementState === 'failed'
-        ? (supplementJob?.error ?? '补写失败')
-        : '已提交补写任务，正在等待新章节生成…'
+    ? supplementState === 'closed'
+      ? '补写任务已从任务栏关闭，可重新发起补写'
+      : supplementState === 'done'
+        ? `补写完成，新产物 ${bidIdFromOutputDir(supplementJob?.bid?.output_dir ?? '') ?? ''} 已生成，可在「标书历史」对比覆盖率`
+        : supplementState === 'failed'
+          ? (supplementJob?.error ?? '补写失败')
+          : '已提交补写任务，正在等待新章节生成…'
     : supplementCreateError
 
   const rewriteMsg = rewriteJobId
-    ? rewriteState === 'done'
-      ? '章节重写完成，产物已原地更新'
-      : rewriteState === 'failed'
-        ? (rewriteJob?.error ?? '章节重写失败')
-        : (rewriteSubmitText ?? '已提交章节重写任务…')
+    ? rewriteState === 'closed'
+      ? '重写任务已从任务栏关闭，可重新发起重写'
+      : rewriteState === 'done'
+        ? '章节重写完成，产物已原地更新'
+        : rewriteState === 'failed'
+          ? (rewriteJob?.error ?? '章节重写失败')
+          : (rewriteSubmitText ?? '已提交章节重写任务…')
     : rewriteCreateError
 
   // 补写终态回调：只做列表刷新；组件卸载时已由全局注册表 revoke
