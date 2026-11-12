@@ -61,4 +61,11 @@ describe('Button 组件（组件测试范例）', () => {
     expect(screen.queryByRole('button', { name: '临时节点' })).toBeNull()
     expect(document.body).toBeEmptyDOMElement()
   })
+
+  it('ghost 变体保持透明底默认样式（T-037：局部修复不得改全局 ghost）', () => {
+    render(<Button variant="ghost">静默操作</Button>)
+    const btn = screen.getByRole('button', { name: '静默操作' })
+    expect(btn.className).toContain('bg-transparent')
+    expect(btn.className).not.toContain('bg-slate-700')
+  })
 })
