@@ -19,6 +19,8 @@ import {
   ruleErrorSections,
 } from '../lib/bid_quality'
 import { Badge, Banner, Button, Card, Modal, Spinner } from '../ui'
+import { PlaceholderWorkbench, type PlaceholderWorkbenchHandle } from './PlaceholderWorkbench'
+import { isPlaceholderMarker, splitByPlaceholder } from '../lib/placeholder_workbench'
 
 const STRATEGY_LABEL: Record<string, string> = {
   generate: '生成',
@@ -78,6 +80,8 @@ export function ResultView({
   const trackedJobIdsRef = useRef<string[]>([])
   const bridgeRef = useRef(jobBridge)
   bridgeRef.current = jobBridge
+  // T-039：章节弹窗点击占位标记后展开工作台并聚焦对应输入
+  const workbenchRef = useRef<PlaceholderWorkbenchHandle>(null)
 
   const [editing, setEditing] = useState<SectionDetail | null>(null)
   const [editText, setEditText] = useState('')
@@ -583,7 +587,24 @@ export function ResultView({
         </Card>
       )}
 
+      <PlaceholderWorkbench
+        ref={workbenchRef}
+        bidId={id}
+        docId={data.doc_id}
+        bidder={data.bidder}
+        sections={sections}
+        onSaved={setOverride}
+        onRefreshSections={refreshSections}
+      />
+
       <Card title="产物">
+        {data.placeholder_count > 0 && (
+          <div className="mb-3">
+            <Banner kind="warn">
+              产物仍含 {data.placeholder_count} 种占位符未填写，下载文件将保留占位标记，请先在工作台填写
+            </Banner>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={openPreview} disabled={loading || !id}>
             {loading ? <Spinner /> : '预览 Markdown'}
@@ -631,6 +652,25 @@ export function ResultView({
       >
         <div className="space-y-3">
           {editError && <Banner kind="error">{editError}</Banner>}
+          <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
+            {splitByPlaceholder(editText).map((part, idx) =>
+              isPlaceholderMarker(part) ? (
+                <mark
+                  key={idx}
+                  className="cursor-pointer rounded bg-amber-500/30 px-0.5"
+                  onClick={() => {
+                    const marker = part
+                    setEditing(null)
+                    workbenchRef.current?.focusMarker(marker)
+                  }}
+                >
+                  {part}
+                </mark>
+              ) : (
+                <span key={idx}>{part}</span>
+              ),
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"

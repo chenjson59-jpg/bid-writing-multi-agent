@@ -3,6 +3,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -898,6 +899,132 @@ def test_rewrite_bid_sections(client, section_artifact, monkeypatch):
         ).status_code
         == 404
     )
+
+
+# ---- T-039 标书级占位符批量回填 ----
+
+_FILL_MARKER = "【待填写：投标报价】"
+
+
+def _seed_fill_artifact(bid_dir: Path) -> Path:
+    """在单章产物中写入含两个同标记实例的正文，返回章节文件路径。"""
+    from src.bid_writer import sections as sections_module
+
+    sections_module.ensure_sections(bid_dir)
+    body_path = bid_dir / "sections" / "01-section_1.md"
+    body_path.write_text(
+        f"# 施工组织设计\n\n报价：{_FILL_MARKER}{_FILL_MARKER}\n",
+        encoding="utf-8",
+    )
+    return body_path
+
+
+def test_fill_bid_placeholders_success(client, section_artifact, monkeypatch):
+    from src.bid_writer import sections as sections_module
+
+    body_path = _seed_fill_artifact(section_artifact)
+    monkeypatch.setattr(
+        sections_module,
+        "markdown_to_docx",
+        lambda markdown, path, **kwargs: Path(path).write_bytes(b"docx"),
+    )
+
+    resp = client.post(
+        f"/api/bids/{_SECTION_BID}/sections/fill-placeholders",
+        json={
+            "items": [
+                {"marker": _FILL_MARKER, "value": "  壹佰万元整  ", "section_ids": None}
+            ],
+            "lock": True,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data) == {
+        "summary",
+        "filled",
+        "skipped_locked",
+        "remaining_placeholder_count",
+    }
+    assert data["filled"][0]["marker"] == _FILL_MARKER
+    assert data["filled"][0]["replacements"] == 2
+    assert data["filled"][0]["section_ids"] == ["section_1"]
+    assert data["skipped_locked"] == []
+    assert data["remaining_placeholder_count"] == 0
+    assert data["summary"]["placeholder_count"] == 0
+    assert "壹佰万元整" in (section_artifact / "bid.md").read_text(encoding="utf-8")
+    assert _FILL_MARKER not in body_path.read_text(encoding="utf-8")
+    # lock=true：实际写入章节被加锁
+    assert client.get(f"/api/bids/{_SECTION_BID}/sections").json()[0]["locked"] is True
+
+
+def test_fill_bid_placeholders_validation_errors(client, section_artifact):
+    _seed_fill_artifact(section_artifact)
+    url = f"/api/bids/{_SECTION_BID}/sections/fill-placeholders"
+
+    # items 为空（Schema 1..100 约束）
+    assert client.post(url, json={"items": []}).status_code == 422
+    # marker 不符合同源正则
+    assert client.post(
+        url, json={"items": [{"marker": "../evil", "value": "x"}]}
+    ).status_code == 422
+    # value 纯空白
+    assert client.post(
+        url, json={"items": [{"marker": _FILL_MARKER, "value": "   "}]}
+    ).status_code == 422
+    # value 含占位符
+    assert client.post(
+        url, json={"items": [{"marker": _FILL_MARKER, "value": "【待填写：x】"}]}
+    ).status_code == 422
+    # section_id 不存在
+    assert client.post(
+        url,
+        json={"items": [{"marker": _FILL_MARKER, "value": "x", "section_ids": ["nope"]}]},
+    ).status_code == 422
+    # 同一请求 marker 重复
+    assert client.post(
+        url,
+        json={
+            "items": [
+                {"marker": _FILL_MARKER, "value": "a"},
+                {"marker": _FILL_MARKER, "value": "b"},
+            ]
+        },
+    ).status_code == 422
+    # marker 在产物中不存在
+    assert client.post(
+        url, json={"items": [{"marker": "【待填写：不存在】", "value": "x"}]}
+    ).status_code == 422
+
+
+def test_fill_bid_placeholders_all_locked_returns_422(client, section_artifact):
+    _seed_fill_artifact(section_artifact)
+    lock_resp = client.put(
+        f"/api/bids/{_SECTION_BID}/sections/section_1", json={"locked": True}
+    )
+    assert lock_resp.status_code == 200
+
+    resp = client.post(
+        f"/api/bids/{_SECTION_BID}/sections/fill-placeholders",
+        json={"items": [{"marker": _FILL_MARKER, "value": "壹佰万"}]},
+    )
+    assert resp.status_code == 422
+    assert "锁定" in resp.json()["detail"]
+
+
+def test_fill_bid_placeholders_404_and_bad_bid_id(client, section_artifact):
+    _seed_fill_artifact(section_artifact)
+    payload = {"items": [{"marker": _FILL_MARKER, "value": "x"}]}
+
+    # bid_id 格式合法但产物目录不存在 → 404
+    resp = client.post(
+        "/api/bids/0123456789abcdef-20261022-130000/sections/fill-placeholders",
+        json=payload,
+    )
+    assert resp.status_code == 404
+    # bid_id 不符路由正则 → 422
+    bad = client.post("/api/bids/xyz/sections/fill-placeholders", json=payload)
+    assert bad.status_code == 422
 
 
 # ---- 可观测性：任务轨迹与指标（P1-9）----

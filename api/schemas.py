@@ -277,6 +277,54 @@ class SectionRewriteRequest(BaseModel):
     section_ids: list[str] | None = None
 
 
+class PlaceholderFillItem(BaseModel):
+    """占位符批量回填单项：一个去重标记对应一个人工填写值（T-039）。"""
+
+    marker: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1, max_length=2000)
+    section_ids: list[str] | None = Field(default=None, min_length=1)
+
+    @field_validator("value")
+    @classmethod
+    def _strip_value(cls, value: str) -> str:
+        """去掉首尾空白；纯空白视为非法，占位符正则由服务端函数二次校验。"""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("回填值不能为空")
+        return stripped
+
+
+class PlaceholderFillRequest(BaseModel):
+    """标书级占位符批量回填请求：一次请求逐章全文替换。"""
+
+    items: list[PlaceholderFillItem] = Field(min_length=1, max_length=100)
+    lock: bool = False
+
+
+class PlaceholderFilledItem(BaseModel):
+    """单个标记的回填结果：实际替换实例数与实际写入章节。"""
+
+    marker: str
+    replacements: int
+    section_ids: list[str]
+
+
+class PlaceholderSkippedItem(BaseModel):
+    """命中锁定章节而被跳过的标记及对应章节。"""
+
+    marker: str
+    section_ids: list[str]
+
+
+class PlaceholderFillResponse(BaseModel):
+    """批量回填响应：summary 同单章 PUT，另附填充/跳过明细与剩余占位符种数。"""
+
+    summary: dict[str, Any]
+    filled: list[PlaceholderFilledItem]
+    skipped_locked: list[PlaceholderSkippedItem]
+    remaining_placeholder_count: int
+
+
 class BidderProfileItem(BaseModel):
     id: int
     company_name: str

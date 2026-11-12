@@ -972,7 +972,86 @@ Chroma 两个已知集合中该 `doc_id` 的片段 → 删除解析目录与原�
 - `bid_id` 格式非法返回 422；
 - 其他文件名返回 404。
 
-#### 7.10 错误码汇总
+#### 7.10 标书章节占位符批量回填（T-039）
+
+**`POST /api/bids/{bid_id}/sections/fill-placeholders`**
+
+标书级占位符填写工作台的保存接口：按完整标记文本去重，一个标记一次请求替换
+全部章节中的全部同名实例；服务端全程离线确定性执行，不调用 LLM/检索，不写
+投标人资料库，数据只在本产物目录内流转。与单章 `PUT
+/api/bids/{bid_id}/sections/{section_id}` 的区别：单章 PUT 一次只处理一章且
+每次保存都重建产物；本接口一次请求处理多章多标记，整套产物只重建一次。
+
+请求体：
+
+```json
+{
+  "items": [
+    {
+      "marker": "【待填写：投标报价】",
+      "value": "人民币壹佰万元整",
+      "section_ids": null
+    }
+  ],
+  "lock": true
+}
+```
+
+| 字段 | 必填 | 约束 | 说明 |
+|---|---|---|---|
+| `items` | 是 | 1–100 项 | 空列表返回 422 |
+| `items[*].marker` | 是 | 1–200 字符，须被同源正则 `【待填写[^】]*】` 完整命中 | 仅参与内存文本替换，永不参与路径拼接 |
+| `items[*].value` | 是 | strip 后 1–2000 字符，且不得包含占位符 | 服务端按 strip 后的值回填，纯空白返回 422 |
+| `items[*].section_ids` | 否 | `null`（缺省）或非空章节 id 数组 | 白名单限制候选章节；每个 id 必须存在于 `sections/index.json` |
+| `lock` | 否 | 布尔，默认 `false` | `true` 时仅对**实际发生替换**的章节置 `locked=true` |
+
+成功响应（200）：
+
+```json
+{
+  "summary": { "placeholder_count": 0, "warnings": ["批量回填 1 个占位符标记，涉及 1 个章节"] },
+  "filled": [
+    { "marker": "【待填写：投标报价】", "replacements": 3, "section_ids": ["section_3", "section_7"] }
+  ],
+  "skipped_locked": [
+    { "marker": "【待填写：工期】", "section_ids": ["section_9"] }
+  ],
+  "remaining_placeholder_count": 0
+}
+```
+
+字段语义：
+
+- `summary`：重建后 `report.summary()` 原样返回，结构与单章 PUT 响应一致；
+- `filled`：实际发生替换的标记，按请求 items 顺序返回；`replacements` 为跨章节
+  实际替换的实例总数（同章同标记的重复实例一次全部替换），`section_ids` 为
+  实际写入章节，按 index 顺序；
+- `skipped_locked`：命中锁定章节而跳过的标记；同一标记若部分章节可写、部分
+  锁定，会同时出现在 `filled` 与 `skipped_locked`；
+- `remaining_placeholder_count`：重建后剩余占位符的**去重标记种数**，与
+  `summary.placeholder_count` 同口径（不是实例总数），可到 0。
+
+副作用（一次请求固定一次）：
+
+1. 校验阶段只读，任一规则失败零写入；
+2. 章节正文通过「临时文件 + 原子替换」落盘，写入章 `edited=true`，
+   `lock=true` 时同时置 `locked=true`，`index.json` 全量重写一次；
+3. 随后仅调用一次产物重建：重合并 `bid.md`、重导一次 `bid.docx`、重写
+   `report.json`，并在报告 warnings 中注明本次填充标记数与加锁章节数；
+   Word 导出失败沿用既有降级（报告追加警告，不阻断 Markdown 与报告）。
+
+错误：
+
+| 状态码 | 场景 |
+|---|---|
+| 404 | `bid_id` 格式合法但产物目录不存在 |
+| 422 | `bid_id` 不符路由正则；`items` 为空或超过 100 项；`marker` 不符合同源正则；`value` strip 后为空或自身含占位符；`section_ids` 为空数组或含 index 中不存在的 id；同一请求 `marker` 重复；`marker` 在任何章节正文中都不存在；全部命中章节均已锁定（无任何可写替换，错误信息列明锁定章节） |
+
+部分命中位于锁定章节时不报错：可写章节正常回填，锁定章节计入
+`skipped_locked` 并在响应中返回 200。旧产物（无 `sections/`）先经既有
+`ensure_sections` 反推补齐后再回填，行为与单章编辑一致。
+
+#### 7.11 错误码汇总
 
 | 状态码 | 含义 | 前端处理建议 |
 |---|---|---|
