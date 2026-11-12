@@ -33,6 +33,7 @@ from api.schemas import (
     TaskHistoryItem,
 )
 from src.config import settings
+from src.db.profile_sanitize import sanitize_task_for_api
 from src.db.repository import (
     delete_profile,
     get_task,
@@ -319,7 +320,8 @@ def supplement_bid(
 async def list_task_history(limit: int = 100, offset: int = 0) -> list[TaskHistoryItem]:
     """任务历史：从数据库读，跨重启可查（尽力而为，库不可用返回空）。"""
     tasks = await list_tasks(limit=limit, offset=offset)
-    return [TaskHistoryItem(**item) for item in tasks]
+    # T-041：接口层剥离 options.profile 高敏快照；retry 用的 get_task 不经此路径
+    return [TaskHistoryItem(**sanitize_task_for_api(item)) for item in tasks]
 
 
 @router.get("/profiles", response_model=list[BidderProfileItem])
