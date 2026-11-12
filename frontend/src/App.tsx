@@ -287,6 +287,7 @@ export default function App() {
       track: (input) => registerJob(input),
       revoke: revokeSettled,
       find: (jobId) => selectedJobSnapshot(jobs, jobId),
+      has: (jobId) => findTrackedJob(jobs, jobId) !== null,
     }),
     [jobs, registerJob, revokeSettled],
   )

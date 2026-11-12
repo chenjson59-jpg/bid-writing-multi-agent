@@ -45,6 +45,26 @@ export interface JobBridge {
   track: (input: RegisterJobInput) => void
   revoke: (jobId: string) => void
   find: (jobId: string) => JobView | null
+  has: (jobId: string) => boolean
+}
+
+/** ResultView 本地跟踪的补写/重写子任务状态。 */
+export type SubTaskState = 'idle' | 'running' | 'done' | 'failed' | 'closed'
+
+/**
+ * 由 ResultView 本地 jobId、全局集合是否仍保留条目与最新快照派生五态。
+ * 显式关闭会移除全局条目但不清空本地 jobId，此场景单独归位为 closed，
+ * 不能再按「有 id 但快照缺失」误判为 running。
+ */
+export function deriveSubTaskState(
+  trackedId: string | null,
+  exists: boolean,
+  job: JobView | null | undefined,
+): SubTaskState {
+  if (!trackedId) return 'idle'
+  if (!exists) return 'closed'
+  if (!job || job.status === 'pending' || job.status === 'running') return 'running'
+  return job.status === 'succeeded' ? 'done' : 'failed'
 }
 
 export const EMPTY_SELECTION: ChannelSelection = { upload: null, write: null }

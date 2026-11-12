@@ -274,11 +274,22 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
 14. supplement/rewrite 以 `autoSelect:false` 登记：不切换当前通道选择态，发起者
     ResultView 保持挂载，避免卸载 cleanup 撤销自身终态回调。
 
+15. supplement/rewrite 终态行被任务栏显式关闭、发起者 ResultView 仍挂载时，本地
+    trackedId 不清空，但 `JobBridge.has(jobId)` 变为 false；`deriveSubTaskState`
+    将该场景归位为 `closed`，等待/终态横幅替换为中性提示，补写、批量重写与行内重写
+    按钮恢复可点击且不显示 Spinner，并可用新 jobId 重新走 running→done/failed。
+    F5 会重置纯内存状态，本地 trackedId 随重载归零后直接是 idle；切 tab 会卸载
+    ResultView，重挂时本地 state 重新初始化为 null，也不经过 closed。HistoryPage
+    展开区共用同一 ResultView 与 JobBridge，语义相同。
+
 ## 6. 纯函数清单（task_state.ts，无 React 依赖）
 
 新增（命名以实现为准，语义不变）：类型 `JobKind`（四值）、`PageChannel`、
-`TrackedJob`、`JobCollection`、`SettledCallback`、`ChannelSelection`、`JobBridge`、
+`TrackedJob`、`JobCollection`、`SettledCallback`、`ChannelSelection`、`JobBridge`
+（在 track/revoke/find 外增加 `has(jobId): boolean`）、`SubTaskState`、
 `RegisterJobInput`（含实现期补入的 `autoSelect`）、`PageJobState` 沿用既有定义；
+子任务派生函数 `deriveSubTaskState(trackedId, exists, job)` 输出
+`idle/running/done/failed/closed` 五态；
 集合操作 `registerTrackedJob`、`upsertJobSnapshot`（jobEquals 相等返回原引用）、
 `markJobSettled`、`closeJobById`、`findTrackedJob`、`pollableJobs`、
 `selectedJobSnapshot`；选择态 `selectionAfterRegister`、`selectionAfterClose`；
@@ -301,7 +312,9 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
 - 通道：四 kind 的 channel/kindTab 映射、未知 kind 兜底；
 - 回调注册表：put/take 取到同一引用、二次 take 为 undefined（重放不重复）、revoke 后
   take 为 undefined（卸载清理）、同 id 覆盖以最新为准；
-- kindLabel 四 kind 新映射（迁移 2 条旧断言，保留未知兜底用例）。
+- kindLabel 四 kind 新映射（迁移 2 条旧断言，保留未知兜底用例）；
+- T-036 `deriveSubTaskState` 五态：idle、条目存在但 job=null 的 running、pending/running、
+  succeeded/failed，以及 trackedId 存在但 `exists=false` 的 closed。
 
 ### 7.2 组件（新增 tests/app_multi_job_queue.test.tsx）
 
@@ -321,7 +334,10 @@ revokeSettledCallback(reg, jobId): void       // 卸载撤销，不影响任务�
 5. ResultView 卸载（切 tab）后任务终态：回调不触碰已卸载组件、全程不存在 2s
    interval（spy 断言）、重挂后无报错；
 6. 回归：切 tab 任务视图恢复、「查看」高亮、HistoryPage 终态自动刷新在多任务结构下
-   仍然通过；F5 语义以纯内存结构说明（jsdom 不模拟刷新，不做组件用例）。
+   仍然通过；F5 语义以纯内存结构说明（jsdom 不模拟刷新，不做组件用例）；
+7. T-036 回归：supplement/rewrite 终态行被显式关闭且 ResultView 仍挂载时，不复活等待
+   文案、按钮解锁且无 Spinner、显示 closed 中性提示；随后用新 jobId 再发起，断言
+   running→done 完整流转。
 
 ### 7.3 手动验证（写入工作日志，未实际执行不得标「已验证」）
 
