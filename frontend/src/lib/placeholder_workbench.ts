@@ -40,8 +40,10 @@ export const HIGH_SENSITIVITY_KEYWORDS: readonly string[] = [
 
 /**
  * 低敏资料字段白名单（键对应 ProfileSchemaResponse.fields）：
- * 仅纳入单值可确定性写入的标量/字符串数组字段；对象与记录数组字段
- * （financials/contact/similar_projects/personnel 等）留待 T-040 收敛。
+ * 仅纳入可由标记确定性写入的标量/字符串数组字段。T-040 后资料表单保留 7 个
+ * 白名单字段，其中 registered_capital/established_date 不经工作台标记映射写入，
+ * 故本列表维持 5 个；financials/contact/similar_projects/personnel 已确定为
+ * 实例级字段，不进入资料库复用，任何标记都不会勾选复用。
  */
 export const LOW_SENSITIVITY_PROFILE_FIELDS: readonly string[] = [
   'company_name',

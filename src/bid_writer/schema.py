@@ -36,6 +36,9 @@ _FILL_KEYWORDS = ("投标函", "授权委托书", "身份证明", "承诺", "声
 PLACEHOLDER_RE = re.compile(r"【待填写[^】]*】")
 
 # ---- 投标人资料字段 → 缺失中文名（docs/algorithms.md 8.4.2）----
+# T-040：白名单收缩为 7 个低敏、跨标书复用字段；
+# similar_projects/personnel/financials/contact 移出表单与 prompt 外发，
+# 但 BidderProfile dataclass 字段保留以兼容旧版 JSON 反序列化。
 PROFILE_FIELD_LABELS: dict[str, str] = {
     "company_name": "公司名称",
     "legal_representative": "法定代表人",
@@ -44,10 +47,6 @@ PROFILE_FIELD_LABELS: dict[str, str] = {
     "address": "注册地址",
     "qualifications": "企业资质",
     "certifications": "认证证书",
-    "similar_projects": "类似项目业绩",
-    "personnel": "项目管理人员",
-    "financials": "财务数据",
-    "contact": "联系方式",
 }
 
 # 缺失判定的字段顺序（8.4.2 的固定顺序）
@@ -59,10 +58,6 @@ MISSING_FIELD_ORDER: tuple[str, ...] = (
     "address",
     "qualifications",
     "certifications",
-    "similar_projects",
-    "personnel",
-    "financials",
-    "contact",
 )
 
 
@@ -109,6 +104,9 @@ def extract_placeholders(text: str) -> list[str]:
 class BidderProfile:
     """投标人资料（docs/api-contract.md §9）。
 
+    T-040 后 prompt 外发与缺失判定只覆盖 7 个白名单字段；similar_projects /
+    personnel / financials / contact / notes 保留在 dataclass 中仅为旧版 JSON
+    反序列化与资料库回显兼容，不再进入提示词，也不参与缺失判定。
     `notes` 不参与缺失判定；`contact` 与 `financials` 允许为 `None`。
     """
 

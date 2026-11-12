@@ -135,6 +135,7 @@ def _join(items: list[Any], fallback: str = "（无）") -> str:
 
 
 # 资料字段 schema-key → 中文标签（和后端 PROFILE_FIELD_LABELS 对齐）
+# T-040：仅保留实际外发的 7 个白名单字段；移出字段与 notes 不再进入提示词
 _SCHEMA_LABEL_CN = {
     "company_name": "公司名称",
     "legal_representative": "法定代表人",
@@ -143,10 +144,6 @@ _SCHEMA_LABEL_CN = {
     "address": "注册地址",
     "qualifications": "企业资质",
     "certifications": "认证证书",
-    "similar_projects": "类似项目业绩",
-    "personnel": "项目人员",
-    "financials": "财务数据",
-    "contact": "联系方式",
 }
 
 _LEVEL_TAG = {
@@ -173,10 +170,6 @@ def _profile_text(profile, schema: dict[str, Any] | None = None) -> str:
     other_fields = [
         ("qualifications", "、".join(profile.qualifications) if profile.qualifications else "（空）"),
         ("certifications", "、".join(profile.certifications) if profile.certifications else "（空）"),
-        ("similar_projects", f"{len(profile.similar_projects)} 项" if profile.similar_projects else "（空）"),
-        ("personnel", f"{len(profile.personnel)} 人" if profile.personnel else "（空）"),
-        ("financials", (str(profile.financials) if profile.financials else "（空）")),
-        ("contact", (str(profile.contact) if profile.contact else "（空）")),
     ]
 
     lines: list[str] = []
@@ -193,8 +186,6 @@ def _profile_text(profile, schema: dict[str, Any] | None = None) -> str:
         label = _SCHEMA_LABEL_CN[key]
         lines.append(f"{tag}{label}：{value}")
 
-    if profile.notes:
-        lines.append(f"补充说明：{'、'.join(profile.notes)}")
     return "\n".join(lines)
 
 
