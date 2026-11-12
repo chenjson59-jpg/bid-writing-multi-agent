@@ -42,6 +42,7 @@ import * as api from '../src/api'
 import type {
   BidSummary,
   PlaceholderFillResponse,
+  ProfileSchemaResponse,
   SectionDetail,
   SectionInfo,
   SectionResult,
@@ -147,7 +148,7 @@ const sections: SectionInfo[] = [
   mkSectionInfo({ id: 'section_3', title: '施工方案', order: 3, strategy: 'generate', placeholder_count: 0 }),
 ]
 
-const schemaResp = {
+const schemaResp: ProfileSchemaResponse = {
   doc_id: 'doc-1',
   doc_type: 'tender_file',
   inferred_from: [],
@@ -191,7 +192,7 @@ describe('T-039 PlaceholderWorkbench 工作台（离线夹具）', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.mocked(api.getSection).mockImplementation(async (_bid, sid) => {
-      if (sid === 'section_1') return mkDetail('section_1', `前文${COMPANY}中间${COMPANY}结尾`)
+      if (sid === 'section_1') return mkDetail('section_1', `前文${COMPANY}中间${COMPANY}结尾`, false, '投标函')
       if (sid === 'section_2') return mkDetail('section_2', `工期为${PERIOD}天`, true, '报价表')
       return mkDetail(sid, '无标记正文')
     })
@@ -453,7 +454,7 @@ describe('T-039 ResultView 集成（下载警告与标记高亮跳转）', () =>
     vi.useFakeTimers()
     vi.mocked(api.listSections).mockResolvedValue(sections)
     vi.mocked(api.getSection).mockImplementation(async (_bid, sid) => {
-      if (sid === 'section_1') return mkDetail('section_1', `前文${COMPANY}中间${COMPANY}结尾`)
+      if (sid === 'section_1') return mkDetail('section_1', `前文${COMPANY}中间${COMPANY}结尾`, false, '投标函')
       if (sid === 'section_2') return mkDetail('section_2', `工期为${PERIOD}天`, true, '报价表')
       return mkDetail(sid, '无标记正文')
     })
@@ -470,7 +471,7 @@ describe('T-039 ResultView 集成（下载警告与标记高亮跳转）', () =>
   it('placeholder_count>0 显示含种数的下载警告；=0 不渲染；下载按钮不被拦截', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     const summary = mkSummary({ placeholder_count: 3, sections: [mkSectionResult()] })
-    render(<ResultView bid={summary} bidId="bid-1" />)
+    const first = render(<ResultView bid={summary} bidId="bid-1" />)
     await flush()
 
     const warn = screen.getByText(/产物仍含 3 种占位符未填写/)
@@ -478,6 +479,7 @@ describe('T-039 ResultView 集成（下载警告与标记高亮跳转）', () =>
     fireEvent.click(screen.getByRole('button', { name: '下载 Markdown' }))
     expect(openSpy).toHaveBeenCalledTimes(1)
     openSpy.mockRestore()
+    first.unmount()
 
     const zero = mkSummary({ placeholder_count: 0 })
     const utils = render(<ResultView bid={zero} bidId="bid-2" />)
@@ -492,9 +494,10 @@ describe('T-039 ResultView 集成（下载警告与标记高亮跳转）', () =>
 
     fireEvent.click(screen.getByRole('button', { name: '编辑' }))
     await flush()
-    const mark = screen.getByText(COMPANY)
-    expect(mark.tagName).toBe('MARK')
-    fireEvent.click(mark)
+    const marks = screen.getAllByText(COMPANY)
+    expect(marks.length).toBeGreaterThan(1)
+    expect(marks.every((m) => m.tagName === 'MARK')).toBe(true)
+    fireEvent.click(marks[0])
     await flush(3)
 
     // 编辑弹窗关闭，工作台在同页展开并出现对应输入

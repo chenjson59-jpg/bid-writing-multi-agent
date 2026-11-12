@@ -272,3 +272,50 @@ export interface ProfileSchemaResponse {
   fields: Record<string, ProfileSchemaItem>
   inferred_from: string[]
 }
+
+// ---------- T-039 标书级占位符批量回填（与 docs/api-contract.md §7.10 对齐） ----------
+
+export interface PlaceholderFillItem {
+  marker: string
+  value: string
+  // null 表示全文替换；本期工作台固定传 null
+  section_ids: string[] | null
+}
+
+export interface PlaceholderFillRequest {
+  items: PlaceholderFillItem[]
+  lock: boolean
+}
+
+export interface PlaceholderFilledItem {
+  marker: string
+  replacements: number
+  section_ids: string[]
+}
+
+export interface PlaceholderSkippedItem {
+  marker: string
+  section_ids: string[]
+}
+
+export interface PlaceholderFillResponse {
+  summary: BidSummary
+  filled: PlaceholderFilledItem[]
+  skipped_locked: PlaceholderSkippedItem[]
+  remaining_placeholder_count: number
+}
+
+/** 单个标记在某章节中的出现情况 */
+export interface MarkerSectionOccurrence {
+  id: string
+  title: string
+  count: number
+  locked: boolean
+}
+
+/** 按完整标记文本去重后的聚合行：一个标记对应一个输入框 */
+export interface MarkerAgg {
+  marker: string
+  total: number
+  sections: MarkerSectionOccurrence[]
+}

@@ -11,6 +11,8 @@ import type {
   HealthInfo,
   JobView,
   ParseAccepted,
+  PlaceholderFillRequest,
+  PlaceholderFillResponse,
   ProfileSchemaResponse,
   SectionDetail,
   SectionInfo,
@@ -257,6 +259,19 @@ export function rewriteSections(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ section_ids: sectionIds }),
+  })
+}
+
+// T-039 标书级占位符批量回填：一个标记一次请求替换全部章节中的全部同名实例，
+// 服务端只重建一次产物；全程离线确定性执行，不调用 LLM/检索、不写投标人资料库。
+export function fillPlaceholders(
+  bidId: string,
+  body: PlaceholderFillRequest,
+): Promise<PlaceholderFillResponse> {
+  return request(`/api/bids/${bidId}/sections/fill-placeholders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }
 
