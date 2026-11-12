@@ -395,7 +395,8 @@ export function WritePage({
                 </p>
               ))}
               <div className="mt-3 flex justify-end">
-                <Button variant="ghost" onClick={onDeselect}>
+                {/* T-037：ghost 透明底与 slate-900 卡片融为一体，改用 secondary 实底保证可点击辨识度 */}
+                <Button variant="secondary" onClick={onDeselect}>
                   返回表单（后台继续）
                 </Button>
               </div>
