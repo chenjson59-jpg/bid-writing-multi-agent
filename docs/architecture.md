@@ -245,7 +245,7 @@
 6. 预览/下载 Markdown/Word/报告成功；
 7. 桌面端打开 Word、定位产物目录成功；Web 端浏览器访问全流程可用（打开/定位以下载替代）；
 8. 历史列表出现新产物，详情可展开；
-9. 刷新后文档库、历史、主题保持；
+9. 刷新后文档库、历史保持；
 10. 停掉执行器，确认 pending 提示；
 11. 停掉队列，确认 503 与健康徽标；
 12. 上传非 PDF/超大文件，确认错误提示；
@@ -332,7 +332,7 @@
 
 | 项 | 说明 |
 |---|---|
-| 职责 | 四个工作区交互、表单、任务轮询、结果展示、主题切换 |
+| 职责 | 四个工作区交互、表单、任务轮询、结果展示 |
 | 输入 | 用户操作：选择 PDF、填写资料、设置参数 |
 | 输出 | 调用接口提交任务；展示状态/摘要/产物 |
 | 依赖 | 接口服务（HTTP）、桌面桥（IPC）、本地存储（localStorage） |
@@ -756,7 +756,6 @@ flowchart LR
     direction TB
     LastDoc("最后选中文档")
     JobIds("任务 ID")
-    Theme("主题偏好")
   end
 
   subgraph sgDesktop["桌面能力"]
@@ -775,7 +774,6 @@ flowchart LR
   BidJob --> JobIds
   LastDoc --> Library
   LastDoc --> Bid
-  Theme -.->|"全局主题"| Upload
   Preview --> Open
   Preview --> Reveal
 
@@ -785,7 +783,7 @@ flowchart LR
   classDef desktop fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
   class Upload,Library,Bid,History view
   class Tab,ParseJob,BidJob,Form,Preview state
-  class LastDoc,JobIds,Theme persist
+  class LastDoc,JobIds persist
   class Open,Reveal desktop
 
   style sgViews fill:#f0f9ff,stroke:#0284c7,stroke-width:2px
@@ -800,7 +798,6 @@ flowchart LR
 - 上传表单、编写表单、任务 ID、历史选中项、预览弹窗共享同一份 App 状态；
 - 任务 ID 与最后选中文档写入本地存储，刷新后可恢复；
 - 投标人资料**不写入本地存储**，只在当前会话内保留；
-- 主题在首屏脚本中提前应用，避免刷新闪烁；
 - 桌面能力只在检测到桥接对象时显示，浏览器环境自动隐藏。
 
 #### 3.3 状态保持规则
@@ -812,7 +809,6 @@ flowchart LR
 | 编写表单 | 否 | 资料不落本地 |
 | 最后文档 ID | 是 | 便于继续编写 |
 | 解析/编写任务 ID | 是 | 任务过期后自动清理 |
-| 主题 | 是 | 深色 / 浅色 |
 | 历史选中项 | 否 | 仅在当前会话 |
 
 ---
@@ -1972,7 +1968,7 @@ flowchart LR
 | 队列结果 | 默认 24 小时 |
 | 本地内存任务 | 进程结束即丢失 |
 | 检索索引 | 持久，需手工清理 |
-| 前端本地记录 | 文档 ID、任务 ID、主题 |
+| 前端本地记录 | 文档 ID、任务 ID |
 
 ---
 
