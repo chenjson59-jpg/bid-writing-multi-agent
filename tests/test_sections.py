@@ -461,6 +461,10 @@ def test_fill_placeholders_does_not_call_model_or_agent(env, monkeypatch):
     monkeypatch.setattr(agents, "default_caller", boom_caller)
     monkeypatch.setattr(agents, "section_agent", boom_agent)
 
+    # 先准备含占位符的章节，否则会在「标记不存在」校验处提前 422，
+    # 无法验证完整回填链路的零 LLM 约束
+    _seed_placeholder_bodies(env)
+
     # 不抛 AssertionError 即证明整条链路零 LLM 调用
     sections.fill_placeholders(env, [_fill_item(_MARKER_PRICE, "壹佰万")])
 
