@@ -39,8 +39,11 @@
     重建）；
   - 章节锁机制已存在：index.json 的 `locked` 字段 + `save_section(locked=...)`，本任务
     复用而非新建；
-  - `BidReport.placeholder_count` 与 `ResultView` 的「占位符」指标已在展示，下载警告
-    无需新统计接口；
+  - 报告级占位符口径为 `summary()['placeholder_count'] = len(report.placeholders)`，即
+    **去重标记种数**（`BidReport` 本身无 placeholder_count 属性，章节级
+    `SectionInfo.placeholder_count` 同为 `extract_placeholders` 去重种数）；
+    `ResultView` 的「占位符」指标已展示该值，下载警告无需新统计接口；实例总数仅由
+    前端工作台聚合函数按章节正文自行统计，不进入报告口径；
   - 产物文件下载白名单在 `api/library.py:_ALLOWED_BID_FILES`，本任务不新增下载入口。
 
 ## 3. 范围与非目标
@@ -147,7 +150,8 @@
 6. **仅调用一次** `rebuild_artifact(bid_dir, extra_warnings=...)`，warning 注明本次
    填充标记数与加锁章节数；
 7. 汇总响应：`filled`（含每个标记的替换实例数与实际写入章节）、`skipped_locked`、
-   `remaining_placeholder_count`（取重建后 report 的 placeholder_count）与 `summary`。
+   `remaining_placeholder_count`（取重建后 `len(report.placeholders)`，去重种数口径，
+   等同 `summary.placeholder_count`）与 `summary`。
 
 路由层 `api/routes.py` 只做参数解析与 `BidWriteError → HTTPException` 映射：产物不存在
 404，校验类错误 422（与现有单章 PUT 的错误码风格一致）。
@@ -209,8 +213,9 @@
 ### 6.6 下载残留警告（不阻断）
 
 - `ResultView` 三个下载按钮（Markdown / Word / 覆盖报告）上方与报告指标区，当
-  `placeholder_count > 0` 时展示 amber 警告横幅：「产物仍含 N 处占位符（M 种），下载
-  文件将保留占位标记，请先在工作台填写」；为 0 时不渲染任何警告；
+  `placeholder_count > 0` 时展示 amber 警告横幅：「产物仍含 N 种占位符未填写，下载
+  文件将保留占位标记，请先在工作台填写」（N 取报告去重种数口径；工作台内部可另展示
+  实例总数，但警告横幅与既有指标保持同口径）；为 0 时不渲染任何警告；
 - 不拦截下载点击、不改下载接口与白名单。
 
 ## 7. 安全与合规
