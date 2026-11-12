@@ -15,7 +15,7 @@
 | 路径 | 说明 |
 |---|---|
 | `tender_demo.pdf` | 合成招标文件，10 页 / 6 章，带一级书签（保证章节可还原） |
-| `bidder_profile.demo.json` | 合成投标人资料（公司、资质、业绩、人员、财务、联系人） |
+| `bidder_profile.demo.json` | 合成投标人资料（T-040 后仅 7 个白名单字段：公司、法人、注册资本、成立日期、地址、资质、认证） |
 | `artifacts/extraction.json` | 人工整理的抽取结果（5 项评分因素、8 项投标文件格式、33 条资格/技术要点中的关键项） |
 | `artifacts/outline.json` | 章节大纲（9 章：3 章生成、5 章 LLM 填写、1 章占位） |
 | `artifacts/sections/*.md` | 各章预置正文（供组装 `bid.md` 与 `report.json`） |
