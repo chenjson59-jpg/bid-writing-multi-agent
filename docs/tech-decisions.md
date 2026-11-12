@@ -820,10 +820,8 @@ Vite 配置要点：
 样式约定：
 
 - 不使用 `tailwind.config.js`；
-- 主题变量写在 `frontend/src/index.css` 的 `@theme` 中；
+- 固定单一深色主题：index.html 根元素静态携带 dark class，index.css 以 @custom-variant dark 定义深色变体；不提供浅色主题与切换入口（T-038 收口）
 - 深色为默认主题；
-- 浅色主题通过 `html.light` 覆盖 Tailwind 颜色 token 实现；
-- 组件只使用语义化工具类，不逐组件写 `dark:` 变体；
 - 弹窗遮罩使用独立 `.modal-backdrop` 类；
 - 不动态拼接 Tailwind 类名，避免构建扫描遗漏。
 
@@ -855,7 +853,6 @@ Vite 配置要点：
 | `bidding.lastDocId` | 最后选中的文档 |
 | `bidding.parseJobId` | 最近一次解析任务 |
 | `bidding.bidJobId` | 最近一次编写任务 |
-| `bidding.theme` | `dark` / `light` |
 
 投标人资料不写入本地存储。
 
@@ -1233,12 +1230,11 @@ npm run build
 - 通过预加载桥限制能力，避免页面直接获得 Node 权限；
 - 已接入 electron-builder 打包 Windows 安装包；开发态仍可直接运行 Electron 加载 Vite 或 `dist/` 页面。
 
-#### 11.9 为什么浅色主题采用覆盖颜色 token
+#### 11.9 主题策略：单一深色主题
 
-- 组件大量使用同一套 slate/sky/emerald/amber/rose 工具类；
-- 在 `html.light` 下覆盖颜色变量即可整体换肤；
-- 避免在每个组件写两套 `dark:` 类；
-- 新增颜色或硬编码色值时，必须同时补充浅色覆盖。
+- 浅色 token 覆盖方案曾在规划中提出但从未落地（组件样式实际为硬编码深色色板）；
+- T-038 移除半成品切换入口与首屏脚本，产品明确为单一深色主题；
+- 未来若确需浅色主题，另立任务按语义色 token（CSS 变量 + @theme）全表面重构，不得恢复无样式支撑的开关。
 
 ---
 
@@ -1280,7 +1276,6 @@ npm run build
 | Chroma 报租户连接错误 | 并发创建多个 PersistentClient | 共享检索器并加锁 |
 | MinerU 下载中断 | 大文件下载超时 | 提高 `MINERU_DOWNLOAD_TIMEOUT` |
 | `uv run celery`/`uvicorn` 指向旧环境 | 控制台脚本启动器指向旧虚拟环境 | 重新安装对应包以重建启动器 |
-| 前端浅色主题局部仍是深色 | 新代码使用了硬编码颜色或未覆盖新色系 | 补充 `html.light` 颜色覆盖 |
 | 任务一直 pending | 执行器未启动或未注册任务 | 启动/重启执行器 |
 | 429 队列已满 | 排队任务达到上限 | 等待或调整 `API_MAX_PENDING_JOBS` |
 

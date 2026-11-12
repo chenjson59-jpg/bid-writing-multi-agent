@@ -35,16 +35,7 @@ import {
 } from './lib/task_state'
 import type { HealthInfo, JobView } from './types'
 
-type Theme = 'dark' | 'light'
 type HealthState = 'ok' | 'down' | 'idle'
-
-function loadTheme(): Theme {
-  try {
-    return localStorage.getItem('theme') === 'light' ? 'light' : 'dark'
-  } catch {
-    return 'dark'
-  }
-}
 
 // 状态点：绿=正常、红=异常、灰=不适用/未知
 function StatusRow({ label, state, detail }: { label: string; state: HealthState; detail?: string }) {
@@ -152,7 +143,6 @@ function GlobalTaskBar({
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('upload')
-  const [theme, setTheme] = useState<Theme>(loadTheme)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docCount, setDocCount] = useState(0)
   const [bidCount, setBidCount] = useState(0)
@@ -315,15 +305,6 @@ export default function App() {
     }
   }, [])
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    try {
-      localStorage.setItem('theme', theme)
-    } catch {
-      // 存储不可用时忽略
-    }
-  }, [theme])
-
   const refreshCounts = useCallback(async () => {
     try {
       setDocCount((await listDocuments()).length)
@@ -421,13 +402,6 @@ export default function App() {
             detail={health ? (health.worker_ok ? '在线' : '未启动') : '未知'}
           />
         </div>
-        <button
-          type="button"
-          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-          className="mt-4 rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:bg-slate-800"
-        >
-          {theme === 'dark' ? '切换到浅色' : '切换到深色'}
-        </button>
       </aside>
 
       <main className="flex-1 overflow-auto p-6">
