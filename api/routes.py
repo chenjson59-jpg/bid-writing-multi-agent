@@ -24,6 +24,8 @@ from api.schemas import (
     JobTraceResponse,
     MetricsResponse,
     ParseAccepted,
+    PlaceholderFillRequest,
+    PlaceholderFillResponse,
     SectionDetail,
     SectionInfo,
     SectionRewriteRequest,
@@ -492,3 +494,26 @@ def rewrite_bid_sections(
         status="pending",
         job_url=f"/api/jobs/{job_id}",
     )
+
+
+@router.post(
+    "/bids/{bid_id}/sections/fill-placeholders",
+    response_model=PlaceholderFillResponse,
+)
+def fill_bid_placeholders(
+    bid_id: Annotated[str, PathParam(pattern=_BID_ID_PATTERN)],
+    body: PlaceholderFillRequest,
+) -> PlaceholderFillResponse:
+    """标书级占位符批量回填：一次请求逐章替换，只重建一次整套产物。"""
+    from src.bid_writer.sections import fill_placeholders
+
+    bid_dir = _bid_dir_or_404(bid_id)
+    try:
+        result = fill_placeholders(
+            bid_dir,
+            [item.model_dump() for item in body.items],
+            lock=body.lock,
+        )
+    except BidWriteError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return PlaceholderFillResponse(**result)

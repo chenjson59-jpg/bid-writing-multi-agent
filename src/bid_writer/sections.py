@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from src.bid_writer.assembly import assemble_markdown, build_report
 from src.bid_writer.docx_export import markdown_to_docx
 from src.bid_writer.facts import build_fact_ledger
 from src.bid_writer.schema import (
+    PLACEHOLDER_RE,
     BidderProfile,
     BidReport,
     ReviewResult,
@@ -70,6 +72,15 @@ def _write_body(bid_dir: Path, entry: dict[str, Any], markdown: str) -> None:
     path = _body_path(bid_dir, entry)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown.strip() + "\n", encoding="utf-8")
+
+
+def _write_body_atomic(bid_dir: Path, entry: dict[str, Any], markdown: str) -> None:
+    """临时文件 + 原子替换落盘章节正文（T-039），落盘失败不覆盖旧文件。"""
+    path = _body_path(bid_dir, entry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(markdown.strip() + "\n", encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 def _load_index(bid_dir: Path) -> list[dict[str, Any]]:
@@ -368,8 +379,138 @@ def rewrite_sections(
     return rebuild_artifact(bid_dir, llm_usage=meter.summary(), extra_warnings=notes)
 
 
+def fill_placeholders(
+    bid_dir: Path,
+    items: list[dict[str, Any]],
+    *,
+    lock: bool = False,
+) -> dict[str, Any]:
+    """标书级占位符批量回填（T-039）：全文一次替换，全程只重建一次产物。
+
+    纯离线确定性逻辑，不调用 LLM/检索，不写投标人资料库；marker 仅参与内存
+    文本替换，永不拼接文件路径。校验阶段只读，任一规则失败抛 ``BidWriteError``
+    且零写入；正文走临时文件 + 原子替换落盘，``index.json`` 全量重写一次。
+
+    items 元素结构：``{"marker": str, "value": str,
+    "section_ids": list[str] | None}``；``section_ids`` 为 None 时候选章为
+    全部章节，否则只处理白名单章节。
+    """
+    if not items:
+        raise BidWriteError("回填项不能为空")
+
+    entries = ensure_sections(bid_dir)
+    entry_ids = {str(entry.get("id")) for entry in entries}
+    bodies: dict[str, str] = {
+        str(entry["id"]): _read_body(bid_dir, entry) for entry in entries
+    }
+
+    # ---- 规格 5.2：全量只读校验，任一不过即零写入 ----
+    normalized: list[dict[str, Any]] = []
+    seen_markers: set[str] = set()
+    for item in items:
+        marker = str(item["marker"])
+        if PLACEHOLDER_RE.fullmatch(marker) is None:
+            raise BidWriteError(f"占位标记不合规：{marker}")
+        value = str(item.get("value") or "").strip()
+        if not value:
+            raise BidWriteError(f"回填值不能为空：{marker}")
+        if PLACEHOLDER_RE.search(value) is not None:
+            raise BidWriteError(f"回填值不得包含占位符：{marker}")
+        section_ids = item.get("section_ids")
+        if section_ids is not None:
+            section_ids = [str(section_id) for section_id in section_ids]
+            if not section_ids:
+                raise BidWriteError(f"章节白名单不能为空：{marker}")
+            for section_id in section_ids:
+                if section_id not in entry_ids:
+                    raise BidWriteError(f"章节不存在：{section_id}")
+        if marker in seen_markers:
+            raise BidWriteError(f"占位标记在同一请求中重复：{marker}")
+        seen_markers.add(marker)
+        normalized.append(
+            {"marker": marker, "value": value, "section_ids": section_ids}
+        )
+
+    for norm in normalized:
+        if not any(norm["marker"] in body for body in bodies.values()):
+            raise BidWriteError(f"占位标记在产物章节中不存在：{norm['marker']}")
+
+    # ---- 规格 5.3：按 item 计算写入计划（此阶段仍不写盘）----
+    filled: list[dict[str, Any]] = []
+    skipped_locked: list[dict[str, Any]] = []
+    chapter_plans: dict[str, list[tuple[str, str]]] = {}
+    for norm in normalized:
+        marker = norm["marker"]
+        writable_ids: list[str] = []
+        locked_ids: list[str] = []
+        for entry in entries:
+            section_id = str(entry["id"])
+            if (
+                norm["section_ids"] is not None
+                and section_id not in norm["section_ids"]
+            ):
+                continue
+            if marker not in bodies[section_id]:
+                continue
+            if entry.get("locked"):
+                locked_ids.append(section_id)
+            else:
+                writable_ids.append(section_id)
+        if locked_ids:
+            skipped_locked.append({"marker": marker, "section_ids": locked_ids})
+        if writable_ids:
+            filled.append(
+                {"marker": marker, "replacements": 0, "section_ids": writable_ids}
+            )
+            for section_id in writable_ids:
+                chapter_plans.setdefault(section_id, []).append(
+                    (marker, norm["value"])
+                )
+
+    if not chapter_plans:
+        detail = "；".join(
+            f"{item['marker']} 命中锁定章节 {', '.join(item['section_ids'])}"
+            for item in skipped_locked
+        )
+        suffix = f"：{detail}" if detail else ""
+        raise BidWriteError(f"没有可回填的章节，标记的全部命中章节均已锁定{suffix}")
+
+    # ---- 逐章按 items 顺序替换，临时文件 + 原子替换落盘 ----
+    filled_by_marker = {item["marker"]: item for item in filled}
+    written_ids: list[str] = []
+    for entry in entries:
+        section_id = str(entry["id"])
+        changes = chapter_plans.get(section_id)
+        if not changes:
+            continue
+        body = bodies[section_id]
+        for marker, value in changes:
+            before = body.count(marker)
+            body = body.replace(marker, value)
+            filled_by_marker[marker]["replacements"] += before - body.count(marker)
+        _write_body_atomic(bid_dir, entry, body)
+        entry["edited"] = True
+        if lock:
+            entry["locked"] = True
+        written_ids.append(section_id)
+    _write_index(bid_dir, entries)
+
+    notes = [f"批量回填 {len(filled)} 个占位符标记，涉及 {len(written_ids)} 个章节"]
+    if lock:
+        notes.append(f"已对 {len(written_ids)} 个章节加锁")
+    report = rebuild_artifact(bid_dir, extra_warnings=notes)
+    return {
+        "summary": report.summary(),
+        "filled": filled,
+        "skipped_locked": skipped_locked,
+        # 与 summary.placeholder_count 同口径：重建后去重标记种数
+        "remaining_placeholder_count": len(report.placeholders),
+    }
+
+
 __all__ = [
     "ensure_sections",
+    "fill_placeholders",
     "load_drafts",
     "rebuild_artifact",
     "rewrite_sections",
