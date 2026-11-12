@@ -7,8 +7,17 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from typing import Any
 
+from src.bid_writer import facts as fact_mod
+from src.bid_writer.facts import (
+    FACT_BUDGET,
+    FACT_DEPOSIT,
+    FACT_PROJECT_NAME,
+    FACT_TENDER_NO,
+    FactLedger,
+)
 from src.bid_writer.schema import RuleCheckResult, SectionPlan, extract_placeholders
 
 # 规则码
@@ -16,6 +25,7 @@ CITE_EMPTY = "CITE_EMPTY"
 CITE_OUT_OF_RANGE = "CITE_OUT_OF_RANGE"
 CITE_DOC_MISMATCH = "CITE_DOC_MISMATCH"
 QUOTE_FORBIDDEN = "QUOTE_FORBIDDEN"
+FACT_MISMATCH = "FACT_MISMATCH"
 
 # 仅匹配括号内纯数字的引用标记，Markdown 链接 [文字](url) 不会命中
 _CITATION_RE = re.compile(r"\[(\d+)\]")
@@ -35,6 +45,7 @@ def check_section_rules(
     retrieved: list[dict[str, Any]],
     *,
     doc_id: str = "",
+    ledger: FactLedger | None = None,
 ) -> RuleCheckResult:
     """对单章节正文执行确定性规则检查。
 
@@ -84,6 +95,8 @@ def check_section_rules(
             }
         )
 
+    errors.extend(check_fact_consistency(markdown, ledger))
+
     return RuleCheckResult(
         section_id=plan.id,
         passed=not errors,
@@ -91,6 +104,90 @@ def check_section_rules(
         errors=errors,
         placeholders=extract_placeholders(markdown),
     )
+
+
+def check_fact_consistency(markdown: str, ledger: FactLedger | None) -> list[dict[str, str]]:
+    """全局事实口径校验（T-029）：零模型调用，返回 FACT_MISMATCH 错误列表。
+
+    无 ledger 或空 ledger 时整体跳过；跨标准单位（月/天、工作日/天）不做含
+    业务假设的换算，跳过不判错；同类型存在多条事实时任一匹配即通过。
+    """
+    if ledger is None or ledger.is_empty:
+        return []
+
+    errors: list[dict[str, str]] = []
+    amount_types = {FACT_DEPOSIT, FACT_BUDGET}
+
+    # 数值型事实：金额族（元）与工期族（天/工作日/月）
+    for fact_type, pattern in (*fact_mod.AMOUNT_SCANS, *fact_mod.DURATION_SCANS):
+        typed = ledger.by_type(fact_type)
+        if not typed:
+            continue
+        is_amount = fact_type in amount_types
+        for match in pattern.finditer(markdown):
+            if "【待填写" in match.group(0):
+                continue
+            anchor, number, unit = match.group(1), match.group(2), match.group(3)
+            if is_amount:
+                actual = fact_mod.canonical_amount(number, unit)
+                canonical_unit = fact_mod.UNIT_YUAN
+            else:
+                actual = Decimal(fact_mod.canonical_duration_value(number))
+                canonical_unit = fact_mod.canonical_duration_unit(unit)
+            peers = [f for f in typed if f.unit == canonical_unit]
+            if not peers:
+                continue  # 跨单位，不臆造错误
+            if any(Decimal(f.value) == actual for f in peers):
+                continue
+            expected = "、".join(f"{f.value}{f.unit}" for f in peers)
+            errors.append(
+                {
+                    "code": FACT_MISMATCH,
+                    "message": (
+                        f"事实口径冲突：{anchor}正文为「{number} {unit}」，"
+                        f"事实表记载为「{expected}」"
+                    ),
+                }
+            )
+
+    # 字符串型事实：项目名称、项目编号（标签锚定 + 简称容忍）
+    for fact_type, pattern in (
+        (FACT_PROJECT_NAME, fact_mod.PROJECT_NAME_RE),
+        (FACT_TENDER_NO, fact_mod.TENDER_NO_RE),
+    ):
+        typed = ledger.by_type(fact_type)
+        if not typed:
+            continue
+        for match in pattern.finditer(markdown):
+            if "【待填写" in match.group(0):
+                continue
+            anchor, actual_text = match.group(1), match.group(2)
+            if any(_text_matches(actual_text, f.value) for f in typed):
+                continue
+            expected = "、".join(f.value for f in typed)
+            errors.append(
+                {
+                    "code": FACT_MISMATCH,
+                    "message": (
+                        f"事实口径冲突：{anchor}正文为「{actual_text}」，"
+                        f"事实表记载为「{expected}」"
+                    ),
+                }
+            )
+
+    return errors
+
+
+def _text_matches(actual: str, expected: str) -> bool:
+    """字符串事实比对：去空白等值；双向子串且短串不少于长串 60% 视为简称。"""
+    a = re.sub(r"\s+", "", actual)
+    b = re.sub(r"\s+", "", expected)
+    if a == b:
+        return True
+    if a in b or b in a:
+        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+        return len(short) / len(long_) >= 0.6
+    return False
 
 
 def _citation_markers(markdown: str) -> list[str]:

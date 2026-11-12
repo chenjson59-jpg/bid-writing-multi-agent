@@ -10,7 +10,8 @@ from datetime import datetime
 from typing import Any
 
 from src.bid_writer.coverage import compute_evaluation_coverage
-from src.bid_writer.rules import check_section_rules
+from src.bid_writer.facts import LEDGER_SOURCE
+from src.bid_writer.rules import FACT_MISMATCH, check_section_rules
 from src.bid_writer.schema import (
     BidReport,
     SectionDraft,
@@ -67,6 +68,7 @@ def build_report(
     generated_at: datetime,
     schema: dict | None = None,
     retrieval_degraded: bool = False,
+    ledger=None,
 ) -> BidReport:
     """计算覆盖报告（8.3.2–8.3.5）。`drafts` 需已按 order 排序。schema 透传给 missing_fields。"""
     warnings: list[str] = []
@@ -120,7 +122,8 @@ def build_report(
     rule_error_count = 0
     for section, draft in zip(sections, drafts):
         result = draft.rule_check or check_section_rules(
-            draft.markdown, draft.plan, draft.retrieved, doc_id=doc_id
+            draft.markdown, draft.plan, draft.retrieved,
+            doc_id=doc_id, ledger=ledger,
         )
         payload = result.to_dict()
         section["rule_check"] = payload
@@ -145,4 +148,26 @@ def build_report(
         rule_error_count=rule_error_count,
         coverage_summary=coverage_summary,
         retrieval_degraded=retrieval_degraded,
+        fact_check_summary=_fact_check_summary(rule_checks, ledger),
     )
+
+
+def _fact_check_summary(rule_checks: list[dict[str, Any]], ledger) -> dict[str, Any]:
+    """T-029：汇总事实表规模与 FACT_MISMATCH 条数；无 ledger 时返回空字典。"""
+    if ledger is None or ledger.is_empty:
+        return {}
+    facts_by_type: dict[str, int] = {}
+    for fact in ledger.facts:
+        facts_by_type[fact.fact_type] = facts_by_type.get(fact.fact_type, 0) + 1
+    mismatch_count = sum(
+        1
+        for check in rule_checks
+        for error in (check.get("errors") or [])
+        if error.get("code") == FACT_MISMATCH
+    )
+    return {
+        "total_facts": len(ledger.facts),
+        "facts_by_type": facts_by_type,
+        "mismatch_count": mismatch_count,
+        "ledger_source": LEDGER_SOURCE,
+    }

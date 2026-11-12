@@ -169,8 +169,19 @@ def test_parse_extract_bid_and_download(client, monkeypatch):
     assert "完全响应" in markdown.text
     assert client.get(f"/api/bids/{bid_id}/files/bid.docx").status_code == 200
     assert client.get(f"/api/bids/{bid_id}/files/report.json").status_code == 200
+    # T-029：事实表随产物落盘、白名单可下载，报告带事实口径汇总
+    facts_resp = client.get(f"/api/bids/{bid_id}/files/facts.json")
+    assert facts_resp.status_code == 200
+    facts_payload = facts_resp.json()
+    assert facts_payload["version"] == 1
+    fact_types = {f["fact_type"] for f in facts_payload["facts"]}
+    assert {"project_name", "tender_no"} <= fact_types
 
     report = client.get(f"/api/bids/{bid_id}/files/report.json").json()
+    fact_summary = report["fact_check_summary"]
+    assert fact_summary["total_facts"] == len(facts_payload["facts"])
+    assert fact_summary["mismatch_count"] == 0
+    assert fact_summary["ledger_source"] == "deterministic_v1"
     coverage = {c["name"]: c["covered"] for c in report["evaluation_coverage"]}
     # 修复后：有分值的评分因素均会被归属到 generate 章节，不再遗漏
     assert coverage == {"投标报价": True, "技术方案": True}

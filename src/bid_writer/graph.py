@@ -43,6 +43,7 @@ def run_write_pipeline(
     max_concurrency: int,
     schema: dict | None = None,
     report: ProgressReport | None = None,
+    ledger=None,
 ) -> list[SectionDraft]:
     """对每个章节并发执行写作循环，返回按 `order` 排序的草稿列表。
 
@@ -76,6 +77,7 @@ def run_write_pipeline(
                 max_revisions=options.max_revisions,
                 caller=caller,
                 schema=schema,
+                ledger=ledger,
             ): plan
             for plan in plans
         }

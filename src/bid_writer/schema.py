@@ -310,6 +310,8 @@ class BidReport:
     retrieval_degraded: bool = False
     # 补写产物所基于的原产物 bid_id（P1-1），正常生成为空
     supplement_of: str = ""
+    # 全局事实表口径检查汇总（T-029），旧产物缺省为空字典
+    fact_check_summary: dict[str, Any] = field(default_factory=dict)
     # 生成参数（P1-2）：章节级重写时按原参数执行
     write_options: dict[str, Any] = field(default_factory=dict)
     # 最后编辑时间（P1-2）：章节编辑 / 重写 / 锁定后回填
@@ -356,6 +358,7 @@ class BidReport:
             "rule_error_count": self.rule_error_count,
             "retrieval_degraded": self.retrieval_degraded,
             "supplement_of": self.supplement_of,
+            "fact_check_summary": self.fact_check_summary,
             "output_dir": self.output_dir,
             "markdown_path": self.markdown_path,
             "docx_path": self.docx_path,

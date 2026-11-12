@@ -15,6 +15,7 @@ from typing import Any
 from src.bid_writer.agents import default_caller, section_agent
 from src.bid_writer.assembly import assemble_markdown, build_report
 from src.bid_writer.docx_export import markdown_to_docx
+from src.bid_writer.facts import build_fact_ledger
 from src.bid_writer.schema import (
     STRATEGY_GENERATE,
     BidderProfile,
@@ -134,6 +135,7 @@ def run_supplement(bid_id: str, *, caller=None, options: dict | None = None):
         raise BidWriteError("该产物已覆盖全部评分因素，无需补写")
 
     tender = load_extraction(report_data["doc_id"])
+    ledger = build_fact_ledger(tender)
     profile = _load_profile(report_data.get("bidder") or "")
     write_options = WriteOptions.from_dict(options)
     meter = default_meter()
@@ -170,6 +172,7 @@ def run_supplement(bid_id: str, *, caller=None, options: dict | None = None):
             min_score=write_options.min_score,
             max_revisions=write_options.max_revisions,
             caller=metered,
+            ledger=ledger,
         )
         new_drafts.append(draft)
 
@@ -187,6 +190,7 @@ def run_supplement(bid_id: str, *, caller=None, options: dict | None = None):
         profile,
         now,
         retrieval_degraded=retriever is None or retriever.degraded,
+        ledger=ledger,
     )
     report.supplement_of = bid_id
     report.warnings.append(

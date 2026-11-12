@@ -163,7 +163,7 @@
 |---|---|---|
 | FR-HIST-01 | 列出历史投标产物 | 读取 `report.json`，损坏目录跳过 |
 | FR-HIST-02 | 查看摘要 | 项目名、投标人、章节/字数、评分覆盖率、占位符数 |
-| FR-HIST-03 | 预览/下载产物 | 白名单 `bid.md`/`bid.docx`/`report.json`/`outline.json` |
+| FR-HIST-03 | 预览/下载产物 | 白名单 `bid.md`/`bid.docx`/`report.json`/`outline.json`/`facts.json` |
 
 #### 5.6 运行形态与桌面能力（FR-FORM / FR-DESK）
 
@@ -414,7 +414,7 @@
 |---|---|
 | 职责 | Planner 生成章节计划，分章节「检索→写作→评审→修订」，汇总产物 |
 | 输入 | `extraction.json` + 投标人资料 + 编写参数 |
-| 输出 | `outline.json`、`sections/*.md`、`bid.md`、`bid.docx`、`report.json` |
+| 输出 | `outline.json`、`sections/*.md`、`bid.md`、`bid.docx`、`facts.json`、`report.json` |
 | 依赖 | 文本模型、检索索引、Word 导出、覆盖报告 |
 | 关键点 | 线程池章节级扇出并行；修订不降分才采纳；占位章节不调模型 |
 
@@ -1418,6 +1418,7 @@ flowchart TB
     DOCX("bid.docx")
     JSON("report.json")
     Outline("outline.json")
+    Facts("facts.json")
   end
 
   Load --> Plan
@@ -1432,10 +1433,12 @@ flowchart TB
   Assemble --> DOCX
   Report --> JSON
   Normalize --> Outline
+  Normalize --> Facts
   MD --> End(["BidReport + 产物"])
   DOCX --> End
   JSON --> End
   Outline --> End
+  Facts --> End
 
   classDef input fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#0f172a
   classDef plan fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
@@ -1695,7 +1698,7 @@ sequenceDiagram
 - 文档库扫描 `upload/parsed/` 一级目录，按修改时间倒序，最多 200 条；
 - 标书历史扫描 `upload/bids/` 一级目录，读取 `report.json`，损坏则跳过，最多 100 条；
 - Markdown 预览返回 `content.md`，inline 展示；
-- 产物下载只允许 `bid.md`、`bid.docx`、`report.json`、`outline.json`；
+- 产物下载只允许 `bid.md`、`bid.docx`、`report.json`、`outline.json`、`facts.json`；
 - 路径必须位于对应产物目录内，非法标识返回 422，文件缺失返回 404；
 - 桌面模式可进一步调用系统打开能力，浏览器模式仅保留预览与下载。
 

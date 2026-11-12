@@ -224,7 +224,7 @@
 - 文档库可预览解析后的 Markdown；
 - 标书历史可查看覆盖摘要、章节得分、缺失资料与警告；
 - 结果页显式展示可信度信号（T-017）：检索降级红色提示、计划/正文/证据三层覆盖漏斗、确定性规则错误章节标记；抽取校正页展示未溯源字段 `ungrounded_fields`；
-- 可预览 `bid.md`，下载 `bid.md`、`bid.docx`、`report.json`；
+- 可预览 `bid.md`，下载 `bid.md`、`bid.docx`、`report.json`、`facts.json`；
 - 桌面模式下可直接打开 Word 文件或在文件管理器中定位产物；
 - 浏览器模式下隐藏桌面专属操作，仅保留预览与下载。
 
@@ -354,6 +354,7 @@ pending（排队中）
 - `sections/NN_<标题>.md`：分章节正文；
 - `bid.md`：合并后的完整投标文件；
 - `bid.docx`：Word 导出（可选）；
+- `facts.json`：全局事实表（T-029），确定性构建的强约束事实与来源；
 - `report.json`：覆盖报告与自检结果。
 
 **编写规则**：
@@ -464,6 +465,7 @@ upload/
       │  └─ NN_<章节标题>.md
       ├─ bid.md
       ├─ bid.docx
+      ├─ facts.json
       └─ report.json
 ```
 
@@ -534,6 +536,7 @@ upload/
 | `rule_checks` | 每章节一条确定性规则检查结果（T-013），字段同 `sections[*].rule_check` |
 | `rule_error_count` | 规则检查未通过的章节数；`summary` 同步输出该字段 |
 | `retrieval_degraded` | 检索降级标志（T-017）：集合缺失/Embedding 失败/查询异常时为 `true`，`summary` 同步输出；旧产物缺省为 `false` |
+| `fact_check_summary` | 事实口径汇总（T-029）：`total_facts`/`facts_by_type`/`mismatch_count`/`ledger_source`；未构建事实表时为 `{}`，旧产物缺省 `{}` |
 
 `evaluation_coverage[*]` 三层覆盖字段（确定性、零模型调用）：
 
@@ -552,7 +555,7 @@ upload/
 | `section_id` | 章节标识 |
 | `passed` | 是否无规则错误 |
 | `citation_markers` | 正文出现的引用标记，去重升序，如 `["[1]", "[3]"]` |
-| `errors` | 规则错误数组，每项 `{"code", "message"}`；码值：`CITE_EMPTY`（无检索却引用）、`CITE_OUT_OF_RANGE`（引用越界）、`CITE_DOC_MISMATCH`（片段不属于当前 doc_id）、`QUOTE_FORBIDDEN`（具体报价/让利/单价） |
+| `errors` | 规则错误数组，每项 `{"code", "message"}`；码值：`CITE_EMPTY`（无检索却引用）、`CITE_OUT_OF_RANGE`（引用越界）、`CITE_DOC_MISMATCH`（片段不属于当前 doc_id）、`QUOTE_FORBIDDEN`（具体报价/让利/单价）、`FACT_MISMATCH`（正文事实口径与事实表冲突，T-029） |
 | `placeholders` | 该章节确定性提取的占位符（事实，不计错误） |
 
 旧产物 `report.json` 缺少这些字段时按缺省处理，前端字段为可选。
@@ -953,6 +956,7 @@ Chroma 两个已知集合中该 `doc_id` 的片段 → 删除解析目录与原�
 - `bid.docx`
 - `report.json`
 - `outline.json`
+- `facts.json`（T-029 全局事实表）
 
 查询参数：
 

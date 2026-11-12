@@ -6,6 +6,8 @@
 
 离线无语义 ground truth，本模块不提供「幻觉检测」：
 - 规则违规数直接汇总生产规则码（CITE_* / QUOTE_FORBIDDEN）；
+  T-029 的 FACT_MISMATCH 不纳入 RULE_CODES 冻结键集合（eval 路径不构建事实表），
+  但 rule_total_errors 仍按实际 errors 全量计数；
 - 无依据信号（ungrounded_signals）只陈述「正文已响应但缺有效证据」这一确定性事实。
 """
 from __future__ import annotations
