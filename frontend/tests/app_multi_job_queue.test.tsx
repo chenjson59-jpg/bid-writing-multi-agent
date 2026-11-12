@@ -454,6 +454,179 @@ describe('T-034 多任务排队与全局任务栏（App 全链路，离线夹具
     expect(vi.mocked(api.listSections).mock.calls.length).toBe(listSectionsAtTerminal)
   })
 
+  it('T-036 补写终态行关闭后归位 closed，再次发起可完整走 running → done', async () => {
+    jobStore['job-bid-1'] = mkJob({
+      job_id: 'job-bid-1',
+      kind: 'bid',
+      status: 'succeeded',
+      bid: mkBidSummary(),
+    })
+    vi.mocked(api.createBid).mockResolvedValue(bidAccepted('job-bid-1'))
+
+    render(<App />)
+    await flushMicrotasks()
+    fireEvent.click(screen.getByRole('button', { name: /编写标书/ }))
+    await flushMicrotasks()
+    await submitBid()
+    await advance(1600)
+
+    jobStore['job-sup-1'] = mkJob({
+      job_id: 'job-sup-1',
+      kind: 'supplement',
+      status: 'running',
+      source_name: 'bid-0001',
+    })
+    fireEvent.click(screen.getByRole('button', { name: '补写未覆盖因素' }))
+    await flushMicrotasks()
+    await advance(1600)
+
+    jobStore['job-sup-1'] = mkJob({
+      job_id: 'job-sup-1',
+      kind: 'supplement',
+      status: 'succeeded',
+      source_name: 'bid-0001',
+      bid: mkBidSummary({ output_dir: 'upload/bids/bid-0002', supplement_of: 'bid-0001' }),
+    })
+    await advance(1600)
+    expect(screen.getByText(/补写完成/)).toBeInTheDocument()
+
+    fireEvent.click(within(taskRow('bid-0001')).getByRole('button', { name: '关闭' }))
+    await flushMicrotasks()
+
+    expect(screen.queryByText('已提交补写任务，正在等待新章节生成…')).toBeNull()
+    expect(screen.queryByText(/补写完成/)).toBeNull()
+    expect(screen.getByText('补写任务已从任务栏关闭，可重新发起补写')).toBeInTheDocument()
+    const closedButton = screen.getByRole('button', { name: '补写未覆盖因素' })
+    expect(closedButton).toBeEnabled()
+    expect(within(closedButton).queryByRole('status')).toBeNull()
+
+    jobStore['job-sup-2'] = mkJob({
+      job_id: 'job-sup-2',
+      kind: 'supplement',
+      status: 'running',
+      source_name: 'bid-0001',
+    })
+    vi.mocked(api.createSupplement).mockResolvedValueOnce({
+      job_id: 'job-sup-2',
+      doc_id: 'doc-1',
+      kind: 'supplement',
+      status: 'pending',
+      job_url: '/api/jobs/job-sup-2',
+    })
+    fireEvent.click(closedButton)
+    await flushMicrotasks()
+
+    expect(closedButton).toBeDisabled()
+    expect(within(closedButton).getByRole('status')).toBeInTheDocument()
+    expect(screen.getByText('已提交补写任务，正在等待新章节生成…')).toBeInTheDocument()
+
+    await advance(1600)
+    jobStore['job-sup-2'] = mkJob({
+      job_id: 'job-sup-2',
+      kind: 'supplement',
+      status: 'succeeded',
+      source_name: 'bid-0001',
+      bid: mkBidSummary({ output_dir: 'upload/bids/bid-0003', supplement_of: 'bid-0001' }),
+    })
+    await advance(1600)
+
+    expect(closedButton).toBeEnabled()
+    expect(within(closedButton).queryByRole('status')).toBeNull()
+    expect(screen.getByText(/补写完成/)).toBeInTheDocument()
+    expect(screen.queryByText('补写任务已从任务栏关闭，可重新发起补写')).toBeNull()
+  })
+
+  it('T-036 重写终态行关闭后归位 closed，再次发起可完整走 running → done', async () => {
+    jobStore['job-bid-1'] = mkJob({
+      job_id: 'job-bid-1',
+      kind: 'bid',
+      status: 'succeeded',
+      bid: mkBidSummary(),
+    })
+    vi.mocked(api.createBid).mockResolvedValue(bidAccepted('job-bid-1'))
+
+    render(<App />)
+    await flushMicrotasks()
+    fireEvent.click(screen.getByRole('button', { name: /编写标书/ }))
+    await flushMicrotasks()
+    await submitBid()
+    await advance(1600)
+
+    jobStore['job-rw-1'] = mkJob({
+      job_id: 'job-rw-1',
+      kind: 'rewrite',
+      status: 'running',
+      source_name: 'bid-0001',
+    })
+    fireEvent.click(screen.getByRole('button', { name: '重写' }))
+    await flushMicrotasks()
+    await advance(1600)
+
+    jobStore['job-rw-1'] = mkJob({
+      job_id: 'job-rw-1',
+      kind: 'rewrite',
+      status: 'succeeded',
+      source_name: 'bid-0001',
+      bid: mkBidSummary(),
+    })
+    await advance(1600)
+    expect(screen.getByText('章节重写完成，产物已原地更新')).toBeInTheDocument()
+
+    fireEvent.click(within(taskRow('bid-0001')).getByRole('button', { name: '关闭' }))
+    await flushMicrotasks()
+
+    expect(screen.queryByText(/已提交.*重写/)).toBeNull()
+    expect(screen.queryByText('章节重写完成，产物已原地更新')).toBeNull()
+    expect(screen.getByText('重写任务已从任务栏关闭，可重新发起重写')).toBeInTheDocument()
+    const closedBatchButton = screen.getByRole('button', { name: '重写全部未锁定章节' })
+    const closedInlineButtons = screen.getAllByRole('button', { name: '重写' })
+    expect(closedBatchButton).toBeEnabled()
+    expect(within(closedBatchButton).queryByRole('status')).toBeNull()
+    expect(closedInlineButtons).toHaveLength(1)
+    closedInlineButtons.forEach((button) => {
+      expect(button).toBeEnabled()
+      expect(within(button).queryByRole('status')).toBeNull()
+    })
+
+    jobStore['job-rw-2'] = mkJob({
+      job_id: 'job-rw-2',
+      kind: 'rewrite',
+      status: 'running',
+      source_name: 'bid-0001',
+    })
+    vi.mocked(api.rewriteSections).mockResolvedValueOnce({
+      job_id: 'job-rw-2',
+      doc_id: 'doc-1',
+      kind: 'rewrite',
+      status: 'pending',
+      job_url: '/api/jobs/job-rw-2',
+    })
+    fireEvent.click(closedInlineButtons[0])
+    await flushMicrotasks()
+
+    expect(closedBatchButton).toBeDisabled()
+    expect(within(closedBatchButton).getByRole('status')).toBeInTheDocument()
+    closedInlineButtons.forEach((button) => {
+      expect(button).toBeDisabled()
+    })
+    expect(screen.getByText('已提交单章重写任务…')).toBeInTheDocument()
+
+    await advance(1600)
+    jobStore['job-rw-2'] = mkJob({
+      job_id: 'job-rw-2',
+      kind: 'rewrite',
+      status: 'succeeded',
+      source_name: 'bid-0001',
+      bid: mkBidSummary(),
+    })
+    await advance(1600)
+
+    expect(screen.getByText('章节重写完成，产物已原地更新')).toBeInTheDocument()
+    expect(closedBatchButton).toBeEnabled()
+    expect(closedInlineButtons[0]).toBeEnabled()
+    expect(screen.queryByText('重写任务已从任务栏关闭，可重新发起重写')).toBeNull()
+  })
+
   it('ResultView 卸载后任务终态：回调不触达已卸载组件（无 getBid 刷新），重挂不报错', async () => {
     jobStore['job-bid-1'] = mkJob({
       job_id: 'job-bid-1',

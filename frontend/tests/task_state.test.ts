@@ -10,6 +10,7 @@ import {
   closeJobById,
   decidePollOutcome,
   derivePageJobState,
+  deriveSubTaskState,
   filterRunning,
   findTrackedJob,
   hasRunning,
@@ -124,6 +125,32 @@ describe('terminalOutcome', () => {
 // ============================================================
 // statusLabel / kindLabel / kindTab
 // ============================================================
+
+describe('T-036 deriveSubTaskState', () => {
+  it('无 trackedId → idle', () => {
+    expect(deriveSubTaskState(null, false, null)).toBe('idle')
+    expect(deriveSubTaskState(null, true, mkJob({ status: 'succeeded' }))).toBe('idle')
+  })
+
+  it('条目存在但首帧 job 为 null → running', () => {
+    expect(deriveSubTaskState('job-submit', true, null)).toBe('running')
+    expect(deriveSubTaskState('job-submit', true, undefined)).toBe('running')
+  })
+
+  it('pending / running → running', () => {
+    expect(deriveSubTaskState('job-pending', true, mkJob({ status: 'pending' }))).toBe('running')
+    expect(deriveSubTaskState('job-running', true, mkJob({ status: 'running' }))).toBe('running')
+  })
+
+  it('succeeded → done，failed → failed', () => {
+    expect(deriveSubTaskState('job-done', true, mkJob({ status: 'succeeded' }))).toBe('done')
+    expect(deriveSubTaskState('job-failed', true, mkJob({ status: 'failed' }))).toBe('failed')
+  })
+
+  it('有 trackedId 但全局集合已不存在 → closed', () => {
+    expect(deriveSubTaskState('job-closed', false, null)).toBe('closed')
+  })
+})
 
 describe('statusLabel', () => {
   it('四种标准状态的中文映射', () => {
