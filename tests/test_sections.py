@@ -187,3 +187,296 @@ def test_section_detail_and_missing_body(env):
     (env / "sections" / "01-section_1.md").unlink()
     with pytest.raises(BidWriteError):
         sections.section_detail(env, "section_1")
+
+
+# ---- T-039 标书级占位符批量回填（规格 docs/specs/2026-11-12-t039-placeholder-workbench.md）----
+
+_MARKER_MANAGER = "【待填写：项目经理】"
+_MARKER_DURATION = "【待填写：工期】"
+_MARKER_PRICE = "【待填写：投标报价】"
+
+
+def _fill_item(marker: str, value: str, section_ids=None) -> dict:
+    return {"marker": marker, "value": value, "section_ids": section_ids}
+
+
+def _seed_placeholder_bodies(bid_dir: Path) -> None:
+    """写入两章含占位符的正文：项目经理×2、工期×2（跨章重复）、报价×1。"""
+    entries = {entry["id"]: entry for entry in sections.ensure_sections(bid_dir)}
+    sections._write_body(
+        bid_dir,
+        entries["section_1"],
+        f"# 施工组织设计\n\n{_MARKER_MANAGER}负责实施，{_MARKER_MANAGER}再次出现。\n"
+        f"{_MARKER_DURATION}日历天。\n",
+    )
+    sections._write_body(
+        bid_dir,
+        entries["section_2"],
+        f"# 项目管理机构\n\n{_MARKER_DURATION}见本节。\n报价：{_MARKER_PRICE}\n",
+    )
+
+
+def _patch_rebuild_spy(monkeypatch) -> dict[str, int]:
+    """包装真实 rebuild_artifact 计数：整条填充链路只允许重建一次。"""
+    counts = {"calls": 0}
+    original = sections.rebuild_artifact
+
+    def spy(bid_dir, **kwargs):
+        counts["calls"] += 1
+        return original(bid_dir, **kwargs)
+
+    monkeypatch.setattr(sections, "rebuild_artifact", spy)
+    return counts
+
+
+def _patch_docx_export(monkeypatch) -> list[str]:
+    """隔离 Word 导出并记录调用次数（兼容 rebuild 的关键字参数）。"""
+    calls: list[str] = []
+
+    def fake_docx(markdown, path, **kwargs):
+        calls.append(str(path))
+        Path(path).write_bytes(b"docx")
+
+    monkeypatch.setattr(sections, "markdown_to_docx", fake_docx)
+    return calls
+
+
+def test_fill_placeholders_replaces_all_instances_and_rebuilds_once(env, monkeypatch):
+    _seed_placeholder_bodies(env)
+    rebuild_counts = _patch_rebuild_spy(monkeypatch)
+    docx_calls = _patch_docx_export(monkeypatch)
+
+    result = sections.fill_placeholders(
+        env,
+        [
+            _fill_item(_MARKER_MANAGER, "张三"),
+            _fill_item(_MARKER_DURATION, "90"),
+            _fill_item(_MARKER_PRICE, "壹佰万元整"),
+        ],
+    )
+
+    # 一次请求只触发一次产物重建与一次 Word 导出
+    assert rebuild_counts == {"calls": 1}
+    assert len(docx_calls) == 1
+
+    body1 = (env / "sections" / "01-section_1.md").read_text(encoding="utf-8")
+    body2 = (env / "sections" / "02-section_2.md").read_text(encoding="utf-8")
+    # 同标记多实例一次全替换，其余章节与标记互不影响
+    assert body1.count("张三") == 2 and _MARKER_MANAGER not in body1
+    assert _MARKER_DURATION not in body1 and _MARKER_DURATION not in body2
+    assert "90" in body1 and "90" in body2
+    assert "壹佰万元整" in body2 and _MARKER_PRICE not in body2
+    assert "【待填写" not in (env / "bid.md").read_text(encoding="utf-8")
+
+    # filled 按 items 顺序返回，replacements 按实际替换实例数统计
+    assert [item["marker"] for item in result["filled"]] == [
+        _MARKER_MANAGER,
+        _MARKER_DURATION,
+        _MARKER_PRICE,
+    ]
+    filled = {item["marker"]: item for item in result["filled"]}
+    assert filled[_MARKER_MANAGER]["replacements"] == 2
+    assert filled[_MARKER_MANAGER]["section_ids"] == ["section_1"]
+    assert filled[_MARKER_DURATION]["replacements"] == 2
+    assert filled[_MARKER_DURATION]["section_ids"] == ["section_1", "section_2"]
+    assert filled[_MARKER_PRICE]["replacements"] == 1
+    assert filled[_MARKER_PRICE]["section_ids"] == ["section_2"]
+    assert result["skipped_locked"] == []
+    assert result["remaining_placeholder_count"] == 0
+    assert result["summary"]["placeholder_count"] == 0
+
+
+def test_fill_placeholders_respects_section_whitelist(env, monkeypatch):
+    _seed_placeholder_bodies(env)
+    _patch_rebuild_spy(monkeypatch)
+    _patch_docx_export(monkeypatch)
+
+    result = sections.fill_placeholders(
+        env, [_fill_item(_MARKER_DURATION, "90", section_ids=["section_1"])]
+    )
+
+    body1 = (env / "sections" / "01-section_1.md").read_text(encoding="utf-8")
+    body2 = (env / "sections" / "02-section_2.md").read_text(encoding="utf-8")
+    assert _MARKER_DURATION not in body1
+    assert _MARKER_DURATION in body2  # 白名单外章节保持原样
+    assert result["filled"][0]["section_ids"] == ["section_1"]
+    assert result["filled"][0]["replacements"] == 1
+    # 项目经理、工期（section_2 残留）、报价三种标记仍在
+    assert result["remaining_placeholder_count"] == 3
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        # marker 不符合同源正则
+        [_fill_item("../etc/passwd", "x")],
+        # value 为空 / 纯空白
+        [_fill_item(_MARKER_MANAGER, "")],
+        [_fill_item(_MARKER_MANAGER, "   ")],
+        # value 自身再引入占位符
+        [_fill_item(_MARKER_MANAGER, f"前缀{_MARKER_DURATION}后缀")],
+        # section_id 不在 index 白名单
+        [_fill_item(_MARKER_MANAGER, "张三", section_ids=["section_x"])],
+        # 空章节白名单
+        [_fill_item(_MARKER_MANAGER, "张三", section_ids=[])],
+        # 同请求 marker 重复
+        [_fill_item(_MARKER_MANAGER, "张三"), _fill_item(_MARKER_MANAGER, "李四")],
+        # marker 在任何章节都不存在
+        [_fill_item("【待填写：不存在字段】", "x")],
+        # items 为空
+        [],
+    ],
+)
+def test_fill_placeholders_validation_errors(env, items):
+    _seed_placeholder_bodies(env)
+    with pytest.raises(BidWriteError):
+        sections.fill_placeholders(env, items)
+
+
+def test_fill_placeholders_skips_locked_sections(env, monkeypatch):
+    _seed_placeholder_bodies(env)
+    sections.save_section(env, "section_2", locked=True)
+    _patch_docx_export(monkeypatch)
+
+    result = sections.fill_placeholders(
+        env,
+        [_fill_item(_MARKER_DURATION, "90"), _fill_item(_MARKER_PRICE, "壹佰万")],
+    )
+
+    body1 = (env / "sections" / "01-section_1.md").read_text(encoding="utf-8")
+    body2 = (env / "sections" / "02-section_2.md").read_text(encoding="utf-8")
+    assert _MARKER_DURATION not in body1  # 未锁定章正常替换
+    assert _MARKER_DURATION in body2       # 锁定章原样保留
+    assert _MARKER_PRICE in body2          # 仅命中锁定章 → 跳过不写
+
+    filled = {item["marker"]: item for item in result["filled"]}
+    assert filled[_MARKER_DURATION]["section_ids"] == ["section_1"]
+    assert _MARKER_PRICE not in filled
+    skipped = {item["marker"]: item for item in result["skipped_locked"]}
+    assert skipped[_MARKER_DURATION]["section_ids"] == ["section_2"]
+    assert skipped[_MARKER_PRICE]["section_ids"] == ["section_2"]
+    # 部分锁定不报错：项目经理未填、工期/报价在锁定章残留，共 3 种标记
+    assert result["remaining_placeholder_count"] == 3
+
+
+def test_fill_placeholders_all_locked_raises(env):
+    _seed_placeholder_bodies(env)
+    sections.save_section(env, "section_1", locked=True)
+    sections.save_section(env, "section_2", locked=True)
+
+    with pytest.raises(BidWriteError, match="锁定"):
+        sections.fill_placeholders(env, [_fill_item(_MARKER_MANAGER, "张三")])
+    # 全部锁定时正文零改动
+    assert _MARKER_MANAGER in (
+        env / "sections" / "01-section_1.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_fill_placeholders_lock_switch_defaults_to_unlocked(env):
+    _seed_placeholder_bodies(env)
+
+    sections.fill_placeholders(env, [_fill_item(_MARKER_PRICE, "壹佰万")])
+
+    entries = {entry["id"]: entry for entry in sections.ensure_sections(env)}
+    assert entries["section_2"]["edited"] is True
+    assert entries["section_2"]["locked"] is False
+    # 未实际写入的章节不加 edited 标记、不改锁定
+    assert "edited" not in entries["section_1"]
+    assert entries["section_1"]["locked"] is False
+
+
+def test_fill_placeholders_lock_true_locks_only_written_sections(env):
+    _seed_placeholder_bodies(env)
+
+    sections.fill_placeholders(
+        env, [_fill_item(_MARKER_DURATION, "90")], lock=True
+    )
+
+    entries = {entry["id"]: entry for entry in sections.ensure_sections(env)}
+    assert entries["section_1"]["locked"] is True
+    assert entries["section_2"]["locked"] is True
+    assert entries["section_1"]["edited"] is True
+    assert entries["section_2"]["edited"] is True
+    report = json.loads((env / "report.json").read_text(encoding="utf-8"))
+    assert any("回填" in warning for warning in report["warnings"])
+    assert any("加锁" in warning and "2" in warning for warning in report["warnings"])
+
+
+def test_fill_placeholders_validation_failure_writes_nothing(env, monkeypatch):
+    _seed_placeholder_bodies(env)
+    rebuild_counts = _patch_rebuild_spy(monkeypatch)
+
+    section_paths = sorted((env / "sections").glob("*.md"))
+    snapshot = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in section_paths}
+    index_path = env / "sections" / "index.json"
+    report_path = env / "report.json"
+    index_snapshot = (index_path.read_bytes(), index_path.stat().st_mtime_ns)
+    report_snapshot = (report_path.read_bytes(), report_path.stat().st_mtime_ns)
+
+    with pytest.raises(BidWriteError):
+        sections.fill_placeholders(env, [_fill_item("【待填写：坏标记", "x")])
+
+    for path, (content, mtime_ns) in snapshot.items():
+        assert path.read_bytes() == content
+        assert path.stat().st_mtime_ns == mtime_ns
+    assert index_path.read_bytes() == index_snapshot[0]
+    assert index_path.stat().st_mtime_ns == index_snapshot[1]
+    assert report_path.read_bytes() == report_snapshot[0]
+    assert report_path.stat().st_mtime_ns == report_snapshot[1]
+    assert not list((env / "sections").glob("*.tmp"))
+    assert rebuild_counts == {"calls": 0}
+
+
+def test_fill_placeholders_malicious_marker_is_text_only(env):
+    _seed_placeholder_bodies(env)
+    evil_marker = "【待填写：../../etc/passwd】"
+    first_entry = sections.ensure_sections(env)[0]
+    sections._write_body(env, first_entry, f"正文 {evil_marker} 结尾\n")
+
+    result = sections.fill_placeholders(env, [_fill_item(evil_marker, "安全值")])
+
+    body1 = (env / "sections" / "01-section_1.md").read_text(encoding="utf-8")
+    assert evil_marker not in body1 and "安全值" in body1
+    assert result["remaining_placeholder_count"] == 2
+    # marker 永不参与路径拼接：产物目录下不得出现穿越/同名文件
+    for path in env.rglob("*"):
+        assert "passwd" not in path.name
+        assert ".." not in path.name
+    assert not list((env / "sections").glob("*.tmp"))
+
+    # 不符正则的恶意 marker 直接拒绝，同样不产生任何文件访问
+    with pytest.raises(BidWriteError):
+        sections.fill_placeholders(env, [_fill_item("../evil", "x")])
+
+
+def test_fill_placeholders_does_not_call_model_or_agent(env, monkeypatch):
+    from src.bid_writer import agents
+
+    def boom_caller():
+        raise AssertionError("占位符回填不得实例化模型调用器")
+
+    def boom_agent(*args, **kwargs):
+        raise AssertionError("占位符回填不得调用写作 Agent")
+
+    monkeypatch.setattr(agents, "default_caller", boom_caller)
+    monkeypatch.setattr(agents, "section_agent", boom_agent)
+
+    # 不抛 AssertionError 即证明整条链路零 LLM 调用
+    sections.fill_placeholders(env, [_fill_item(_MARKER_PRICE, "壹佰万")])
+
+
+def test_fill_placeholders_derives_legacy_artifact(env):
+    # env 夹具本身是没有 sections/ 的旧产物
+    assert not (env / "sections").exists()
+    bid_md = env / "bid.md"
+    bid_md.write_text(
+        bid_md.read_text(encoding="utf-8") + f"\n\n{_MARKER_PRICE}\n",
+        encoding="utf-8",
+    )
+
+    result = sections.fill_placeholders(env, [_fill_item(_MARKER_PRICE, "壹佰万元整")])
+
+    assert (env / "sections" / "index.json").is_file()
+    assert (env / "sections" / "02-section_2.md").is_file()
+    assert result["remaining_placeholder_count"] == 0
+    assert _MARKER_PRICE not in bid_md.read_text(encoding="utf-8")
