@@ -1,8 +1,9 @@
 """投标人资料 schema 推断（profile_schema）测试。
 
-覆盖：
+覆盖（T-040 白名单收敛后，schema 推断只产出 7 个白名单键）：
 - 核心 5 字段（公司名/法人/注册资本/成立日期/地址）始终 required
-- 工程类 / 服务类 / 抽取结果全空 / 只有模糊关键词 / ISO 认证等典型场景
+- 工程类 / 服务类 / 抽取结果全空 / ISO 认证等典型场景
+- 移出字段（similar_projects/personnel/financials/contact）不再出现在推断结果中
 - 非法输入防御（evaluation_factors 混入非 dict、source_quote 非 str 等）
 - API 端点 /api/documents/{doc_id}/profile-schema 的 200 / 404 / 422
 """
@@ -13,6 +14,19 @@ from pathlib import Path
 
 from src.bid_writer.profile_schema import infer_profile_schema
 from src.bid_writer.schema import PROFILE_FIELD_LABELS
+
+# T-040：表单 / prompt 外发 / 缺失判定 / schema 推断统一收敛为 7 字段白名单
+EXPECTED_KEYS = {
+    "company_name",
+    "legal_representative",
+    "registered_capital",
+    "established_date",
+    "address",
+    "qualifications",
+    "certifications",
+}
+# 已移出白名单的高敏 / 单标书字段：推断结果中不允许再出现这些键
+REMOVED_KEYS = {"similar_projects", "personnel", "financials", "contact"}
 
 
 def _levels(result: dict) -> dict[str, str]:
@@ -33,14 +47,16 @@ def test_core_fields_always_required_even_when_extraction_empty():
     assert result["address"]["level"] == "required"
 
 
-def test_all_fields_present_for_every_profile_key():
-    """返回字典必须覆盖 PROFILE_FIELD_LABELS 里的全部 key，不多不少。"""
+def test_result_has_exactly_seven_whitelist_keys():
+    """返回字典键集合恰为 7 个白名单键，与 PROFILE_FIELD_LABELS 一致，不多不少。"""
     result = infer_profile_schema({}, PROFILE_FIELD_LABELS)
-    assert set(result.keys()) == set(PROFILE_FIELD_LABELS.keys())
+    assert set(result.keys()) == EXPECTED_KEYS
+    assert set(PROFILE_FIELD_LABELS.keys()) == EXPECTED_KEYS
+    assert REMOVED_KEYS.isdisjoint(result.keys())
 
 
-def test_engineering_tender_detects_required_fields():
-    """典型工程类标书：评分因素明确提到类似项目业绩、项目管理机构、财务状况。"""
+def test_engineering_tender_keeps_only_whitelist_fields():
+    """工程类标书即便大量提到业绩/人员/财务，移出字段也不再推断，只剩 7 键。"""
     extraction = {
         "evaluation_factors": [
             {"name": "项目管理机构", "source_quote": "项目经理、技术负责人及主要管理人员的资格与业绩"},
@@ -62,17 +78,17 @@ def test_engineering_tender_detects_required_fields():
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
     levels = _levels(result)
 
-    assert levels["similar_projects"] == "required"
-    assert levels["personnel"] == "required"
-    assert levels["financials"] == "required"
-    # qualifications 应该也是 required（有"资质要求"关键词）
+    # 键集合被白名单锁死
+    assert set(result.keys()) == EXPECTED_KEYS
+    assert REMOVED_KEYS.isdisjoint(result.keys())
+    # qualifications 命中“资质/一级”硬关键词 → required
     assert levels["qualifications"] == "required"
     # certifications 工程标书没提 → optional
     assert levels["certifications"] == "optional"
 
 
 def test_service_tender_without_hard_project_keywords():
-    """服务类标书：没有"类似项目业绩"、"项目经理"等硬关键词，只提"过往业绩"。"""
+    """服务类标书：白名单内两个数组字段都没命中关键词 → optional，且不含移出键。"""
     extraction = {
         "evaluation_factors": [
             {"name": "过往服务业绩", "source_quote": "近五年类似咨询服务合同数量与金额"},
@@ -87,12 +103,10 @@ def test_service_tender_without_hard_project_keywords():
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
     levels = _levels(result)
 
-    # 没有"类似项目业绩"硬关键词，只有模糊"过往服务业绩"→ 变成 recommended
-    assert levels["similar_projects"] in ("recommended", "optional")
-    # 没有项目经理/项目管理机构 → personnel optional
-    assert levels["personnel"] == "optional"
-    # 财务也没提 → optional
-    assert levels["financials"] == "optional"
+    assert set(result.keys()) == EXPECTED_KEYS
+    assert REMOVED_KEYS.isdisjoint(result.keys())
+    assert levels["qualifications"] == "optional"
+    assert levels["certifications"] == "optional"
 
 
 def test_certifications_required_when_iso_mentioned():
@@ -107,21 +121,20 @@ def test_certifications_required_when_iso_mentioned():
     }
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
     assert result["certifications"]["level"] == "required"
+    assert set(result.keys()) == EXPECTED_KEYS
 
 
 def test_all_non_core_optional_when_extraction_empty():
-    """抽取结果完全为空 → 只有 core 5 项 required，其余全 optional。"""
+    """抽取结果完全为空 → 只有 core 5 项 required，白名单内其余 2 项 optional。"""
     result = infer_profile_schema({}, PROFILE_FIELD_LABELS)
     levels = _levels(result)
-    assert levels["similar_projects"] == "optional"
-    assert levels["personnel"] == "optional"
-    assert levels["financials"] == "optional"
-    assert levels["contact"] == "optional"
+    assert levels["qualifications"] == "optional"
     assert levels["certifications"] == "optional"
+    assert set(result.keys()) == EXPECTED_KEYS
 
 
 def test_qualifications_required_when_only_qualification_keyword():
-    """只在 qualification_items 里提到"资质" → 硬匹配不到时走 recommended 兜底。"""
+    """只在 qualification_items 里提到“资质" → 硬匹配直接进 required。"""
     extraction = {
         "qualification_items": [
             {"requirement": "投标人须具备相应资质"},
@@ -130,19 +143,22 @@ def test_qualifications_required_when_only_qualification_keyword():
         "bid_format_items": [],
     }
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
-    # "资质" 是 hard required 关键词 → 直接进 required
     assert result["qualifications"]["level"] == "required"
 
 
-def test_contact_required_when_bank_account_mentioned():
-    """抽取结果里明确提到"开户银行"、"银行账号"、"投标保证金" → contact required。"""
+def test_bank_account_keywords_create_no_fields_after_whitelist():
+    """T-040：银行/保证金类关键词过去会推断 contact，contact 移出后不得产生任何白名单外字段。"""
     extraction = {
         "bid_format_items": [
             {"title": "投标保证金", "content": "人民币 60 万元，形式为银行保函或转账，付款账户见投标须知"},
         ],
     }
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
-    assert result["contact"]["level"] == "required"
+    assert set(result.keys()) == EXPECTED_KEYS
+    assert "contact" not in result
+    # 白名单内字段没有对应关键词 → 两个数组字段保持 optional
+    assert _levels(result)["qualifications"] == "optional"
+    assert _levels(result)["certifications"] == "optional"
 
 
 # ---------- 防御性测试：坏数据不崩 ----------
@@ -164,57 +180,61 @@ def test_defense_against_bad_types_in_extraction():
     }
     # 不应抛任何异常
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
-    # 项目经理那项还是能匹配上
-    assert result["personnel"]["level"] == "required"
-    # bid_format_items 因为是错类型 → 被当成空列表处理，不影响
-    assert _levels(result)["similar_projects"] in ("optional", "recommended")
+    assert set(result.keys()) == EXPECTED_KEYS
+    # “一级建造师”命中 qualifications 的“一级”硬关键词 → required
+    assert result["qualifications"]["level"] == "required"
+    # 人员字段已移出，结果中不得再出现
+    assert "personnel" not in result
 
 
 def test_defense_against_missing_top_level_keys():
-    """extraction 里只给 evaluation_factors，其他块全缺。"""
+    """extraction 里只给 evaluation_factors，其他块全缺；业绩关键词不再产生移出键。"""
     extraction = {
         "evaluation_factors": [
             {"name": "类似项目业绩", "source_quote": "近三年同类项目业绩"},
         ]
     }
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
-    assert result["similar_projects"]["level"] == "required"
-    # 缺的块里自然没有关键词 → optional
-    assert result["financials"]["level"] == "optional"
+    assert set(result.keys()) == EXPECTED_KEYS
+    assert "similar_projects" not in result
+    assert "financials" not in result
+    # 白名单数组字段没有对应关键词 → optional
+    assert result["qualifications"]["level"] == "optional"
+    assert result["certifications"]["level"] == "optional"
 
 
 def test_matched_flag_true_only_when_keywords_hit():
     """matched 字段语义：硬关键词命中 → True，core 必填 → False，optional → False。"""
     result = infer_profile_schema({}, PROFILE_FIELD_LABELS)
-    # core 5 项是"通用必填"，不是从抽取结果匹配来的 → matched=False
+    # core 5 项是“通用必填”，不是从抽取结果匹配来的 → matched=False
     assert result["company_name"]["matched"] is False
     assert result["legal_representative"]["matched"] is False
     # optional 也没匹配 → matched=False
     assert result["certifications"]["matched"] is False
-    assert result["similar_projects"]["matched"] is False
+    assert "similar_projects" not in result
 
     # 有硬关键词命中时 matched=True
     extraction = {
-        "evaluation_factors": [
-            {"name": "类似项目业绩", "source_quote": "近三年同类项目业绩数量与规模"},
+        "qualification_items": [
+            {"requirement": "投标人须具备 ISO 9001 质量管理体系认证"},
         ],
     }
     result2 = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
-    assert result2["similar_projects"]["matched"] is True
+    assert result2["certifications"]["matched"] is True
 
 
 def test_reason_field_contains_context_snippet_when_hit():
     """命中时 reason 应包含抽取结果里的原文片段，供前端展示。"""
     extraction = {
         "evaluation_factors": [
-            {"name": "类似项目业绩", "source_quote": "近三年同类供水工程业绩数量与规模"},
+            {"name": "企业资质要求", "source_quote": "具备市政公用工程施工总承包一级及以上资质"},
         ],
     }
     result = infer_profile_schema(extraction, PROFILE_FIELD_LABELS)
-    reason = result["similar_projects"]["reason"]
-    # 应该包含原文
-    assert "类似项目业绩" in reason
-    assert "同类供水工程业绩" in reason
+    reason = result["qualifications"]["reason"]
+    # 应该包含原文片段
+    assert "资质" in reason
+    assert "总承包" in reason
 
 
 # ---------- API 端点测试（走 TestClient） ----------
@@ -230,7 +250,7 @@ def _write_extraction(tmp_path: Path, doc_id: str, extraction: dict) -> Path:
 
 
 def test_profile_schema_endpoint_200(client, local_backend):
-    """正常调用 → 200，返回结构符合预期。"""
+    """正常调用 → 200，返回结构符合预期且 fields 恰为 7 个白名单键。"""
     doc_id = "5e4083e5c89826f8"
     _write_extraction(
         local_backend,
@@ -256,7 +276,8 @@ def test_profile_schema_endpoint_200(client, local_backend):
 
     assert data["doc_id"] == doc_id
     assert data["doc_type"] == "tender_file"
-    assert set(data["fields"].keys()) == set(PROFILE_FIELD_LABELS.keys())
+    assert set(data["fields"].keys()) == EXPECTED_KEYS
+    assert REMOVED_KEYS.isdisjoint(data["fields"].keys())
 
     # 每个字段都有 level / label / reason / matched
     for key, item in data["fields"].items():
@@ -265,10 +286,9 @@ def test_profile_schema_endpoint_200(client, local_backend):
         assert isinstance(item["reason"], str)
         assert isinstance(item["matched"], bool)
 
-    # 推断结果应合理
+    # 推断结果应合理：资质关键词命中 qualifications，认证未提及 → optional
     fields = data["fields"]
-    assert fields["similar_projects"]["level"] == "required"
-    assert fields["personnel"]["level"] == "required"
+    assert fields["qualifications"]["level"] == "required"
     assert fields["certifications"]["level"] == "optional"
     # inferred_from 应该包含有数据的块
     assert "evaluation_factors" in data["inferred_from"]
@@ -307,7 +327,7 @@ def test_profile_schema_endpoint_422_when_extraction_json_corrupted(client, loca
 
 
 def test_profile_schema_endpoint_with_empty_extraction(client, local_backend):
-    """抽取结果全空 → 只有 core 5 项 required，其余 optional。"""
+    """抽取结果全空 → 只有 core 5 项 required，白名单内其余 2 项 optional。"""
     doc_id = "1234567890abcdef"
     _write_extraction(local_backend, doc_id, {"doc_type": "tender_file"})
 
@@ -319,9 +339,11 @@ def test_profile_schema_endpoint_with_empty_extraction(client, local_backend):
     for key in core:
         assert data["fields"][key]["level"] == "required"
 
-    non_core = {"similar_projects", "personnel", "financials", "contact", "certifications"}
+    non_core = {"qualifications", "certifications"}
     for key in non_core:
         assert data["fields"][key]["level"] == "optional"
 
+    # 移出字段不应出现在响应中
+    assert REMOVED_KEYS.isdisjoint(data["fields"].keys())
     # inferred_from 应该是空列表（三个块都没数据）
     assert data["inferred_from"] == []

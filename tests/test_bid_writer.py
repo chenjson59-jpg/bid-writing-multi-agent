@@ -67,8 +67,19 @@ def test_profile_missing_fields():
     missing = profile.missing_fields()
     assert "公司名称" not in missing
     assert "法定代表人" not in missing
-    assert "注册资本" in missing
-    assert "联系方式" in missing
+    # T-040：缺失判定收缩为 7 字段白名单，填了 2 项后恰好缺其余 5 项，顺序固定
+    assert missing == [
+        "注册资本",
+        "成立日期",
+        "注册地址",
+        "企业资质",
+        "认证证书",
+    ]
+    # 移出字段不再参与缺失判定，即便留空也不提示
+    assert "联系方式" not in missing
+    assert "类似项目业绩" not in missing
+    assert "财务数据" not in missing
+    assert "项目管理人员" not in missing
 
 
 # ---- A18 大纲生成 ----
