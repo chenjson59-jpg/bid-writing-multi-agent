@@ -81,7 +81,7 @@ function GlobalTaskBar({
             {pendingCount > 0 && <span className="text-amber-400">· 排队 {pendingCount}</span>}
           </span>
         </div>
-        <ul>
+        <ul className="max-h-[40vh] overflow-y-auto">
           {jobs.map((entry) => {
             const job = entry.job
             const status = job?.status ?? null
@@ -229,7 +229,10 @@ export default function App() {
 
   // 统一 poller：1.5s 遍历全部未终态条目，逐个 getJob，终态即停且快照留存
   useEffect(() => {
-    const tick = async () => {
+    // T-043 在途锁：上一轮 tick 未返回时，后续 interval 回调直接跳过，
+    // 避免慢响应下多个 tick 并发遍历同一集合（重复请求、pollPrevRef 读写交错）
+    let inFlight = false
+    const pollOnce = async () => {
       for (const tracked of pollableJobs(jobsRef.current)) {
         const { jobId } = tracked
         try {
@@ -257,6 +260,15 @@ export default function App() {
         } catch {
           // poll 失败（网络抖动）静默跳过，prev/settled 不变，下一轮继续
         }
+      }
+    }
+    const tick = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        await pollOnce()
+      } finally {
+        inFlight = false
       }
     }
     const timer = window.setInterval(tick, 1500)
