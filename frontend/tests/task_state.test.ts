@@ -11,19 +11,14 @@ import {
   decidePollOutcome,
   derivePageJobState,
   deriveSubTaskState,
-  filterRunning,
   findTrackedJob,
-  hasRunning,
   isRunning,
   isTerminal,
   jobChannel,
   jobEquals,
   kindLabel,
-  kindTab,
   markJobSettled,
   nextHistoryRefreshNonce,
-  pickJobForKind,
-  planJobJump,
   pollableJobs,
   putSettledCallback,
   registerTrackedJob,
@@ -34,7 +29,6 @@ import {
   shouldEmitJobSuccess,
   statusLabel,
   takeSettledCallback,
-  terminalOutcome,
   upsertJobSnapshot,
 } from '../src/lib/task_state'
 import type {
@@ -66,7 +60,7 @@ function mkJob(overrides: Partial<JobView> = {}): JobView {
 }
 
 // ============================================================
-// isRunning / isTerminal / terminalOutcome
+// isRunning / isTerminal
 // ============================================================
 
 describe('isRunning', () => {
@@ -103,27 +97,8 @@ describe('isTerminal', () => {
   })
 })
 
-describe('terminalOutcome', () => {
-  it('非终态 → null', () => {
-    expect(terminalOutcome(mkJob({ status: 'running' }))).toBeNull()
-    expect(terminalOutcome(mkJob({ status: 'pending' }))).toBeNull()
-  })
-
-  it('succeeded → "succeeded"', () => {
-    expect(terminalOutcome(mkJob({ status: 'succeeded' }))).toBe('succeeded')
-  })
-
-  it('failed → "failed"', () => {
-    expect(terminalOutcome(mkJob({ status: 'failed' }))).toBe('failed')
-  })
-
-  it('null → null', () => {
-    expect(terminalOutcome(null)).toBeNull()
-  })
-})
-
 // ============================================================
-// statusLabel / kindLabel / kindTab
+// statusLabel / kindLabel
 // ============================================================
 
 describe('T-036 deriveSubTaskState', () => {
@@ -174,51 +149,6 @@ describe('kindLabel', () => {
   it('rewrite → 重写（T-034 由「编写」迁移）', () => expect(kindLabel('rewrite')).toBe('重写'))
   it('空字符串 → 兜底 "任务"', () => expect(kindLabel('')).toBe('任务'))
   it('未知 kind → 原样返回（兜底，不臆造标签）', () => expect(kindLabel('future-kind')).toBe('future-kind'))
-})
-
-describe('kindTab', () => {
-  it('parse → upload', () => expect(kindTab('parse')).toBe('upload'))
-  it('bid → write', () => expect(kindTab('bid')).toBe('write'))
-  it('rewrite → write（章节重写也跳编写页）', () => expect(kindTab('rewrite')).toBe('write'))
-  it('supplement → write', () => expect(kindTab('supplement')).toBe('write'))
-  it('未知 kind → 兜底 write（非 parse 一律跳编写页）', () => expect(kindTab('whatever-new-kind')).toBe('write'))
-})
-
-// ============================================================
-// filterRunning / hasRunning
-// ============================================================
-
-describe('filterRunning', () => {
-  it('全部 null → 空数组', () => {
-    expect(filterRunning([null, undefined, null])).toEqual([])
-  })
-
-  it('混合：只挑 pending/running', () => {
-    const parse = mkJob({ kind: 'parse', status: 'pending' })
-    const bidRunning = mkJob({ kind: 'bid', status: 'running' })
-    const bidDone = mkJob({ kind: 'bid', status: 'succeeded' })
-    expect(filterRunning([parse, bidRunning, bidDone, null])).toEqual([parse, bidRunning])
-  })
-
-  it('两个都终态 → 空数组', () => {
-    const a = mkJob({ status: 'succeeded' })
-    const b = mkJob({ status: 'failed' })
-    expect(filterRunning([a, b])).toEqual([])
-  })
-})
-
-describe('hasRunning', () => {
-  it('全部 null → false', () => {
-    expect(hasRunning([null, null])).toBe(false)
-  })
-
-  it('有一个 running → true', () => {
-    expect(hasRunning([null, mkJob({ status: 'running' })])).toBe(true)
-  })
-
-  it('全部终态 → false', () => {
-    expect(hasRunning([mkJob({ status: 'succeeded' }), mkJob({ status: 'failed' })])).toBe(false)
-  })
 })
 
 // ============================================================
@@ -319,30 +249,6 @@ describe('jobEquals', () => {
     expect(jobEquals(nullProgress, undefinedProgress)).toBe(true)
     expect(jobEquals(nullProgress, emptyProgress)).toBe(true)
     expect(jobEquals(undefinedProgress, nonEmpty)).toBe(false)
-  })
-})
-
-// ============================================================
-// pickJobForKind
-// ============================================================
-
-describe('pickJobForKind', () => {
-  it('kind 匹配 → 返回任务', () => {
-    const parse = mkJob({ kind: 'parse' })
-    const bid = mkJob({ kind: 'bid' })
-    const jobs = { parse, bid } as const
-    expect(pickJobForKind(jobs, 'parse')).toBe(parse)
-    expect(pickJobForKind(jobs, 'bid')).toBe(bid)
-  })
-
-  it('对应 kind 为 null → 返回 null', () => {
-    const jobs = { parse: null, bid: null } as const
-    expect(pickJobForKind(jobs, 'parse')).toBeNull()
-  })
-
-  it('jobs 是 Partial 缺 key → 返回 null', () => {
-    const jobs: Partial<Record<'parse' | 'bid', JobView | null>> = { parse: mkJob() }
-    expect(pickJobForKind(jobs, 'bid')).toBeNull()
   })
 })
 
@@ -482,38 +388,6 @@ describe('derivePageJobState', () => {
 })
 
 // ============================================================
-// planJobJump：「查看」按钮跳转决策（T-031）
-// ============================================================
-
-describe('planJobJump', () => {
-  it('parse 且当前就在 upload tab → 目标 upload，不切 tab（走原地聚焦）', () => {
-    expect(planJobJump('parse', 'upload')).toEqual({ tab: 'upload', changedTab: false })
-  })
-
-  it('parse 且当前在 write tab → 切到 upload', () => {
-    expect(planJobJump('parse', 'write')).toEqual({ tab: 'upload', changedTab: true })
-  })
-
-  it('bid 在 upload tab → 切到 write', () => {
-    expect(planJobJump('bid', 'upload')).toEqual({ tab: 'write', changedTab: true })
-  })
-
-  it('supplement / rewrite 在 upload tab → write（锁定现有去向）', () => {
-    expect(planJobJump('supplement', 'upload')).toEqual({ tab: 'write', changedTab: true })
-    expect(planJobJump('rewrite', 'upload')).toEqual({ tab: 'write', changedTab: true })
-  })
-
-  it('bid 已在 write tab → 不切 tab，原地聚焦', () => {
-    expect(planJobJump('bid', 'write')).toEqual({ tab: 'write', changedTab: false })
-  })
-
-  it('history/library 等非目标 tab 点击查看 → 必然发生 tab 切换', () => {
-    expect(planJobJump('parse', 'history')).toEqual({ tab: 'upload', changedTab: true })
-    expect(planJobJump('bid', 'library')).toEqual({ tab: 'write', changedTab: true })
-  })
-})
-
-// ============================================================
 // T-034 多任务集合（job_id 键控、四 kind、终态留存与显式关闭）
 // ============================================================
 
@@ -536,11 +410,6 @@ describe('T-034 jobChannel（kind → 页面通道）', () => {
   })
   it('未知 kind → 兜底 write（非 parse 一律 write）', () => {
     expect(jobChannel('whatever-new-kind')).toBe('write')
-  })
-  it('kindTab 与 jobChannel 输出保持一致', () => {
-    expect(kindTab('parse')).toBe(jobChannel('parse'))
-    expect(kindTab('supplement')).toBe(jobChannel('supplement'))
-    expect(kindTab('rewrite')).toBe(jobChannel('rewrite'))
   })
 })
 

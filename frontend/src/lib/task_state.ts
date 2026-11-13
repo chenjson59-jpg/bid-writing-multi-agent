@@ -77,18 +77,10 @@ export function isRunning(job: JobView | null | undefined): boolean {
   return job.status === 'pending' || job.status === 'running'
 }
 
-/** 任务是否已经到达终态（App poller 会在终态后保留 8s 再清理）。 */
+/** 任务是否已经到达终态（succeeded/failed）；终态即停轮询、快照留存到显式关闭，无 grace 定时清理。 */
 export function isTerminal(job: JobView | null | undefined): boolean {
   if (!job) return false
   return job.status === 'succeeded' || job.status === 'failed'
-}
-
-/** 终态类型：成功 vs 失败（用于 UI 颜色）。非终态返回 null。 */
-export function terminalOutcome(job: JobView | null | undefined): 'succeeded' | 'failed' | null {
-  if (!job) return null
-  if (job.status === 'succeeded') return 'succeeded'
-  if (job.status === 'failed') return 'failed'
-  return null
 }
 
 // ---------- 展示标签 ----------
@@ -119,11 +111,6 @@ export function jobChannel(kind: string): PageChannel {
   return kind === 'parse' ? 'upload' : 'write'
 }
 
-/** kind → 对应哪个 Tab（用于"查看"按钮跳转）；输出与 T-030/T-031 锁定值一致。 */
-export function kindTab(kind: string): Tab {
-  return jobChannel(kind)
-}
-
 // ---------- 页面任务视图的受控派生（T-031：选择态上移 App 后，页面只做派生） ----------
 
 /** 页面任务视图三态：表单 / 已提交待首帧 / 展示 job。 */
@@ -146,17 +133,6 @@ export function derivePageJobState(
   if (!selectedJobId) return { mode: 'form' }
   if (activeJob && activeJob.job_id === selectedJobId) return { mode: 'job', job: activeJob }
   return { mode: 'submitting', jobId: selectedJobId }
-}
-
-/** 「查看」按钮跳转决策：切 tab 还是原地聚焦。 */
-export interface JobJumpDecision {
-  tab: Tab
-  changedTab: boolean
-}
-
-export function planJobJump(kind: string, currentTab: Tab): JobJumpDecision {
-  const tab = kindTab(kind)
-  return { tab, changedTab: tab !== currentTab }
 }
 
 // ---------- 终态生命周期（T-030：终态留存、即停轮询、显式复位、历史页刷新信号） ----------
@@ -207,23 +183,6 @@ export function shouldEmitJobSuccess(
   return firedJobId !== activeJob.job_id
 }
 
-// ---------- 过滤活跃任务 ----------
-
-/** 从一组 JobView 候选里挑出"正在运行"的项。
- *  App 底部 GlobalTaskBar 用它决定显示几条。
- */
-export function filterRunning(jobs: Array<JobView | null | undefined>): JobView[] {
-  return jobs.filter((j): j is JobView => isRunning(j))
-}
-
-/**
- * 从全部候选里算出全局"是否有任何活跃任务"（App.tsx 决定底部 padding、蓝点闪烁）。
- *  等价于 jobs.some(isRunning)。
- */
-export function hasRunning(jobs: Array<JobView | null | undefined>): boolean {
-  return jobs.some(isRunning)
-}
-
 // ---------- 安全更新：相同状态不触发重渲染 ----------
 
 /** 逐项比较进度窗口；null/undefined 按既有长度兜底语义视为空数组。 */
@@ -249,14 +208,6 @@ export function jobEquals(a: JobView | null, b: JobView | null): boolean {
   if (a.job_id !== b.job_id) return false
   if (a.status !== b.status) return false
   return progressEquals(a.progress, b.progress)
-}
-
-/** 根据 kind 挑选 activeJobs 里对应通道的任务。类型安全（返回 JobView | null）。 */
-export function pickJobForKind(
-  activeJobs: Partial<Record<JobKind, JobView | null>>,
-  kind: JobKind,
-): JobView | null {
-  return activeJobs[kind] ?? null
 }
 
 // ============================================================
