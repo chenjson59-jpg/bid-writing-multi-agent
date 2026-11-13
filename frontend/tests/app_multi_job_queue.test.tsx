@@ -787,4 +787,88 @@ describe('T-034 多任务排队与全局任务栏（App 全链路，离线夹具
     fireEvent.click(within(taskRow('second.pdf')).getByRole('button', { name: '查看' }))
     expect(within(screen.getByTestId('bid-task-card')).getByText('第二个任务进度')).toBeInTheDocument()
   })
+
+  describe('T-043 poller 在途重入防护与任务栏滚动约束', () => {
+    /** 走编写提交流程登记一个后台任务，随后接管 getJob。 */
+    async function registerSlowBid(jobId: string): Promise<ReturnType<typeof vi.fn>> {
+      vi.mocked(api.createBid).mockResolvedValueOnce(bidAccepted(jobId))
+      render(<App />)
+      await flushMicrotasks()
+      fireEvent.click(screen.getByRole('button', { name: /编写标书/ }))
+      await flushMicrotasks()
+      await submitBid()
+
+      const getJobMock = vi.mocked(api.getJob)
+      getJobMock.mockReset()
+      return getJobMock
+    }
+
+    it('getJob 在途未返回时，后续 tick 不得对同一集合重入发起请求', async () => {
+      const getJobMock = await registerSlowBid('job-slow-1')
+      let resolveJob!: (job: JobView) => void
+      getJobMock.mockReturnValue(new Promise<JobView>((resolve) => { resolveJob = resolve }))
+
+      await advance(1500) // 第一个 tick：发起首次 getJob 后卡在 pending
+      expect(getJobMock.mock.calls.length).toBe(1)
+
+      await advance(1500) // 第二个 tick：在途未返回，必须跳过而非重入
+      expect(getJobMock.mock.calls.length).toBe(1)
+
+      await advance(1500) // 第三个 tick 同样跳过
+      expect(getJobMock.mock.calls.length).toBe(1)
+
+      // 释放为终态，让在途 tick 收尾（置 settled 并释放锁），避免悬挂 Promise
+      resolveJob(mkJob({ job_id: 'job-slow-1', status: 'succeeded', bid: mkBidSummary() }))
+      await flushMicrotasks()
+    })
+
+    it('在途请求返回后下一个 tick 恢复轮询，终态后停止请求', async () => {
+      const getJobMock = await registerSlowBid('job-resume-1')
+      let resolveJob!: (job: JobView) => void
+      getJobMock.mockReturnValue(new Promise<JobView>((resolve) => { resolveJob = resolve }))
+
+      await advance(1500) // 首次请求卡住
+      expect(getJobMock.mock.calls.length).toBe(1)
+      await advance(1500) // 在途期间不重入
+      expect(getJobMock.mock.calls.length).toBe(1)
+
+      // 先返回非终态快照：在途 tick 收尾并释放锁，但任务仍需轮询
+      resolveJob(mkJob({ job_id: 'job-resume-1', status: 'running', progress: ['阶段一'] }))
+      await flushMicrotasks()
+
+      // 锁已释放，下一个 tick 恢复发起请求并拿到终态
+      getJobMock.mockResolvedValue(
+        mkJob({ job_id: 'job-resume-1', status: 'succeeded', bid: mkBidSummary() }),
+      )
+      await advance(1500)
+      expect(getJobMock.mock.calls.length).toBe(2)
+
+      // 已终态置 settled，再一个 tick 不再请求
+      await advance(1500)
+      expect(getJobMock.mock.calls.length).toBe(2)
+    })
+
+    it('任务栏条目容器具备最大高度与纵向滚动约束，任务累积时不撑满视口', async () => {
+      vi.mocked(api.createBid)
+        .mockResolvedValueOnce(bidAccepted('job-scroll-1'))
+        .mockResolvedValueOnce(bidAccepted('job-scroll-2'))
+      jobStore['job-scroll-1'] = mkJob({ job_id: 'job-scroll-1', source_name: 'scroll-1.pdf' })
+      jobStore['job-scroll-2'] = mkJob({ job_id: 'job-scroll-2', source_name: 'scroll-2.pdf' })
+
+      render(<App />)
+      await flushMicrotasks()
+      fireEvent.click(screen.getByRole('button', { name: /编写标书/ }))
+      await flushMicrotasks()
+      await submitBid()
+      await advance(1600)
+      await backToForm()
+      await submitBid()
+      await advance(1600)
+
+      const list = taskRow('scroll-1.pdf').closest('ul') as HTMLElement
+      expect(list).not.toBeNull()
+      expect(list.className).toMatch(/max-h-/)
+      expect(list.className).toMatch(/overflow-y-auto/)
+    })
+  })
 })
