@@ -45,7 +45,7 @@ export const HIGH_SENSITIVITY_KEYWORDS: readonly string[] = [
  * 故本列表维持 5 个；financials/contact/similar_projects/personnel 已确定为
  * 实例级字段，不进入资料库复用，任何标记都不会勾选复用。
  */
-export const LOW_SENSITIVITY_PROFILE_FIELDS: readonly string[] = [
+const LOW_SENSITIVITY_PROFILE_FIELDS: readonly string[] = [
   'company_name',
   'legal_representative',
   'address',

@@ -462,8 +462,8 @@ export function ResultView({
           {supplementMsg && (
             <div className="mt-3">
               <Banner kind={supplementState === 'failed' || supplementCreateError ? 'error' : 'info'}>
-              {supplementMsg}
-            </Banner>
+                {supplementMsg}
+              </Banner>
             </div>
           )}
         </Card>
@@ -493,8 +493,8 @@ export function ResultView({
               {sectionError && <Banner kind="error">{sectionError}</Banner>}
               {rewriteMsg && (
                 <Banner kind={rewriteState === 'failed' || rewriteCreateError ? 'error' : 'info'}>
-                {rewriteMsg}
-              </Banner>
+                  {rewriteMsg}
+                </Banner>
               )}
             </div>
           )}
