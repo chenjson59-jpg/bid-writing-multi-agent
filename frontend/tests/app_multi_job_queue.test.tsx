@@ -871,4 +871,51 @@ describe('T-034 多任务排队与全局任务栏（App 全链路，离线夹具
       expect(list.className).toMatch(/overflow-y-auto/)
     })
   })
+
+  describe('T-044 全局任务栏与模态框层级契约', () => {
+    /** 走到「确认编写」弹窗但不点击确认，保持弹窗打开。 */
+    async function submitToConfirm(): Promise<void> {
+      fireEvent.click(screen.getByRole('button', { name: '提交编写' }))
+      await flushMicrotasks()
+      fireEvent.click(screen.getByRole('button', { name: '仍然继续' }))
+      await flushMicrotasks()
+    }
+
+    it('确认弹窗打开时，Modal 覆盖层高于全局任务栏', async () => {
+      const jobIds = ['job-layer-1', 'job-layer-2', 'job-layer-3']
+      jobIds.forEach((jobId, index) => {
+        jobStore[jobId] = mkJob({
+          job_id: jobId,
+          source_name: `layer-${index + 1}.pdf`,
+          status: 'running',
+        })
+      })
+      const createBidMock = vi.mocked(api.createBid)
+      jobIds.forEach((jobId) => createBidMock.mockResolvedValueOnce(bidAccepted(jobId)))
+
+      render(<App />)
+      await flushMicrotasks()
+      fireEvent.click(screen.getByRole('button', { name: /编写标书/ }))
+      await flushMicrotasks()
+      await submitBid()
+      await advance(1600)
+      await backToForm()
+      await submitBid()
+      await advance(1600)
+      await backToForm()
+      await submitBid()
+      await advance(1600)
+      await backToForm()
+      await submitToConfirm()
+
+      jobIds.forEach((_jobId, index) => {
+        expect(taskRow(`layer-${index + 1}.pdf`)).toBeInTheDocument()
+      })
+      const taskbarRoot = taskRow('layer-1.pdf').closest('ul')?.parentElement?.parentElement as HTMLElement
+      const modalOverlay = screen.getByRole('dialog', { name: '确认编写' }).parentElement as HTMLElement
+
+      expect(taskbarRoot.className).toContain('z-40')
+      expect(modalOverlay.className).toContain('z-50')
+    })
+  })
 })
