@@ -334,7 +334,9 @@
 - **背景**：投标人资料刷新即丢是核心痛点；任务历史需跨重启追溯；数据库是二期功能的公共基础。
 - **决策**：第一期接入 PostgreSQL + SQLAlchemy，持久化「投标人资料 + 任务历史」两张核心表；文档/产物元数据仍扫描 `upload/` 目录。
 - **备选**：SQLite（未采用，并发写弱、与 asyncpg 栈不一致）；本地文件扫描（仍用于文档元数据）。
-- **后果**：增加 PostgreSQL 部署与迁移成本；文档/产物元数据留待二期入库。
+- **后果**：
+  - 增加 PostgreSQL 部署与迁移成本；文档/产物元数据留待二期入库。
+  - 第一期仍用 `Base.metadata.create_all` 建表，暂不引入 Alembic；首次修改数据库表结构前，必须先建立 Alembic baseline 与首个迁移，在此之前表结构冻结。
 
 #### ADR-009：合规约束——不编造、不自动报价
 
@@ -942,6 +944,7 @@ FastAPI + Uvicorn :8001
 - 读写封装于 `src/db/repository.py`，采用「尽力而为」策略：写库失败仅记 warning，不阻断解析/编写；
 - 任务提交时写 `task_history`（pending），进入终态时更新；投标人资料在提交 bid 时落库；
 - 第一期用 `Base.metadata.create_all` 建表，暂未引入 Alembic 迁移历史；
+- 首次修改数据库表结构前，必须先建立 Alembic baseline 与首个迁移；在此之前保持 `create_all`，不改表结构。
 - 测试通过 `set_session_factory` 替换为 `aiosqlite` 文件库，不依赖真实 PostgreSQL。
 
 ---
