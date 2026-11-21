@@ -71,7 +71,7 @@ function GlobalTaskBar({
   const pendingCount = jobs.filter((entry) => entry.job?.status === 'pending').length
 
   return (
-    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 flex justify-center p-3">
+    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-40 flex justify-center p-3">
       <div className="pointer-events-auto w-[min(720px,92vw)] rounded-lg border border-sky-600/40 bg-slate-900/95 shadow-xl shadow-sky-900/30 backdrop-blur">
         <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2 text-xs">
           <span className="flex items-center gap-1 text-sky-400">
